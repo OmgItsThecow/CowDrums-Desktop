@@ -173,13 +173,16 @@ int CowDrumsProcessor::getCurrentStepCount() const {
     return presets[static_cast<size_t>(idx)].mainA.stepCount;
 }
 
-juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile(int bars) const {
+juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile() {
     if (presets.empty()) return {};
     int idx = juce::jlimit(0, static_cast<int>(presets.size()) - 1, activePresetIdx.load());
     const auto& preset = presets[static_cast<size_t>(idx)];
-    int slot = playingSlot.load();
-    const StepPatternData& pat = (slot == 0) ? preset.mainA : (slot == 1 ? preset.varB : preset.fill);
-    const juce::String slotTag = (slot == 0) ? "MainA" : (slot == 1 ? "VarB" : "Fill");
+
+    // Export a complete 4-bar phrase containing ALL 3 sections:
+    // Bar 1: MAIN A | Bar 2: MAIN A | Bar 3: VAR B | Bar 4: FILL
+    const std::array<const StepPatternData*, 4> bars = {
+        &preset.mainA, &preset.mainA, &preset.varB, &preset.fill
+    };
 
     const int tpqn = 480;
     const int baseStepTicks = tpqn / 4; // 120 ticks per 16th note
@@ -189,25 +192,25 @@ juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile(int bars) const 
     juce::MidiMessageSequence seq;
     seq.addEvent(juce::MidiMessage::tempoMetaEvent(static_cast<int>(60000000.0 / bpm)), 0.0);
 
-    int stepCount = std::max(1, pat.stepCount);
-    int totalSteps = stepCount * std::max(1, bars);
     double tickCursor = 0.0;
-
-    for (int i = 0; i < totalSteps; ++i) {
-        int s = i % stepCount;
-        for (int inst = 0; inst < NUM_INSTRUMENTS; ++inst) {
-            int velLevel = pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(s)];
-            if (velLevel <= 0) continue;
-            juce::uint8 vel = (velLevel == 1) ? 52 : (velLevel == 2 ? 94 : 124);
-            int note = GM_NOTES[static_cast<size_t>(inst)];
-            // MIDI Channel 10 (1-indexed in JUCE) = GM Drums
-            seq.addEvent(juce::MidiMessage::noteOn(10, note, vel), tickCursor);
-            seq.addEvent(juce::MidiMessage::noteOff(10, note), tickCursor + 40.0);
+    for (const StepPatternData* patPtr : bars) {
+        const StepPatternData& pat = *patPtr;
+        int stepCount = std::max(1, pat.stepCount);
+        for (int s = 0; s < stepCount; ++s) {
+            for (int inst = 0; inst < NUM_INSTRUMENTS; ++inst) {
+                int velLevel = pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(s)];
+                if (velLevel <= 0) continue;
+                juce::uint8 vel = (velLevel == 1) ? 52 : (velLevel == 2 ? 94 : 124);
+                int note = GM_NOTES[static_cast<size_t>(inst)];
+                // MIDI Channel 10 (1-indexed in JUCE) = GM Drums
+                seq.addEvent(juce::MidiMessage::noteOn(10, note, vel), tickCursor);
+                seq.addEvent(juce::MidiMessage::noteOff(10, note), tickCursor + 40.0);
+            }
+            double dur = (s % 2 == 0)
+                ? (baseStepTicks + swingTicks)
+                : std::max(30.0, baseStepTicks - swingTicks);
+            tickCursor += dur;
         }
-        double dur = (s % 2 == 0)
-            ? (baseStepTicks + swingTicks)
-            : std::max(30.0, baseStepTicks - swingTicks);
-        tickCursor += dur;
     }
 
     seq.sort();
@@ -219,7 +222,7 @@ juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile(int bars) const 
 
     juce::String safeName = preset.name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-");
     if (safeName.isEmpty()) safeName = "CowDrums_Pattern";
-    juce::String fileName = "CowDrums_" + safeName + "_" + slotTag + "_" + juce::String(static_cast<int>(bpm)) + "bpm.mid";
+    juce::String fileName = "CowDrums_" + safeName + "_A-B-Fill_" + juce::String(static_cast<int>(bpm)) + "bpm.mid";
 
     juce::File outDir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("CowDrums_MIDI");
     outDir.createDirectory();
@@ -231,6 +234,13 @@ juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile(int bars) const 
         midiFile.writeTo(fos, 0);
         fos.flush();
     }
+
+    // Automatically turn off internal sequencer / host sync when dragging MIDI to DAW
+    // so the dropped MIDI clip plays cleanly without conflicting with the internal pattern!
+    hostSync.store(false);
+    internalPlaying.store(false);
+    fillQueued.store(false);
+
     return outFile;
 }
 
@@ -251,20 +261,48 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     if (numSamples <= 0) return;
 
     // Query DAW playhead if Host Sync is active
-    bool playNow = internalPlaying.load();
+    bool hostIsPlaying = false;
     double bpmNow = static_cast<double>(internalBpm.load());
-    if (hostSync.load()) {
-        if (auto* ph = getPlayHead()) {
-            if (auto pos = ph->getPosition()) {
-                if (pos->getBpm().hasValue() && *pos->getBpm() > 20.0) {
-                    bpmNow = *pos->getBpm();
-                }
-                if (pos->getIsPlaying()) {
-                    playNow = true;
+    if (auto* ph = getPlayHead()) {
+        if (auto pos = ph->getPosition()) {
+            if (hostSync.load() && pos->getBpm().hasValue() && *pos->getBpm() > 20.0) {
+                bpmNow = *pos->getBpm();
+            }
+            hostIsPlaying = pos->getIsPlaying();
+        }
+    }
+
+    // Reset DAW MIDI auto-yield when transport stops
+    if (!hostIsPlaying) {
+        dawMidiActive.store(false);
+    }
+
+    std::lock_guard<std::mutex> lock(synthMutex);
+
+    // Handle incoming DAW MIDI notes (GM percussion)
+    bool receivedDawNoteOn = false;
+    for (const auto metadata : midiMessages) {
+        const auto msg = metadata.getMessage();
+        if (msg.isNoteOn()) {
+            receivedDawNoteOn = true;
+            int note = msg.getNoteNumber();
+            triggerNoteLocked(note, msg.getFloatVelocity());
+            for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
+                if (GM_NOTES[static_cast<size_t>(i)] == note) {
+                    padFlashMask.fetch_or(1u << static_cast<uint32_t>(i));
+                    break;
                 }
             }
         }
     }
+
+    // If Ableton/DAW is playing a MIDI clip into CowDrums, automatically yield the internal
+    // sequencer so the DAW MIDI clip never conflicts with the internal pattern!
+    if (receivedDawNoteOn && hostIsPlaying) {
+        dawMidiActive.store(true);
+    }
+
+    bool playNow = internalPlaying.load() || (hostSync.load() && hostIsPlaying && !dawMidiActive.load());
     isCurrentlyPlaying.store(playNow);
     effectiveBpm.store(static_cast<float>(bpmNow));
 
@@ -279,23 +317,6 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         fillQueued.store(false);
     }
     wasPlaying = playNow;
-
-    std::lock_guard<std::mutex> lock(synthMutex);
-
-    // Handle incoming DAW MIDI notes (GM percussion)
-    for (const auto metadata : midiMessages) {
-        const auto msg = metadata.getMessage();
-        if (msg.isNoteOn()) {
-            int note = msg.getNoteNumber();
-            triggerNoteLocked(note, msg.getFloatVelocity());
-            for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
-                if (GM_NOTES[static_cast<size_t>(i)] == note) {
-                    padFlashMask.fetch_or(1u << static_cast<uint32_t>(i));
-                    break;
-                }
-            }
-        }
-    }
 
     if (soundFont == nullptr) return;
 

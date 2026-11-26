@@ -187,14 +187,14 @@ void CowDrumsEditor::MidiDragHandle::paint(juce::Graphics& g) {
     g.drawRoundedRectangle(bounds, 5.0f, 1.2f);
 
     g.setColour(CowPalette::Orange);
-    g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
-    g.drawText("DRAG MIDI >>", getLocalBounds(), juce::Justification::centred, false);
+    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.drawText("DRAG A+B+FILL", getLocalBounds(), juce::Justification::centred, false);
 }
 
 void CowDrumsEditor::MidiDragHandle::mouseDrag(const juce::MouseEvent& e) {
     if (dragStarted || e.getDistanceFromDragStart() < 4) return;
     dragStarted = true;
-    juce::File midiFile = processor.exportActivePatternToTempMidiFile(2);
+    juce::File midiFile = processor.exportActivePatternToTempMidiFile();
     if (midiFile.existsAsFile()) {
         juce::DragAndDropContainer::performExternalDragDropOfFiles(
             juce::StringArray{midiFile.getFullPathName()},
@@ -296,6 +296,7 @@ void CowDrumsEditor::refreshButtonColors() {
     bool playing = processor.isPlayingNow();
     playButton.setButtonText(playing ? "STOP" : "PLAY");
     styleBtn(playButton, playing);
+    hostSyncToggle.setToggleState(processor.isHostSync(), juce::dontSendNotification);
     styleBtn(prevKitButton, false);
     styleBtn(nextKitButton, false);
     styleBtn(loadSf2Button, false);

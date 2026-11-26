@@ -101,7 +101,7 @@ public:
     void triggerPadManual(int instrumentIndex, float velocity = 0.92f);
     bool loadExternalSoundFont(const juce::File& file);
     juce::String getActiveSf2Label() const;
-    juce::File exportActivePatternToTempMidiFile(int bars = 2) const;
+    juce::File exportActivePatternToTempMidiFile();
 
     int getCurrentStep() const { return currentStep.load(); }
     int getCurrentStepCount() const;
@@ -130,6 +130,7 @@ private:
     std::atomic<bool> hostSync{true};
     std::atomic<bool> internalPlaying{false};
     std::atomic<bool> isCurrentlyPlaying{false};
+    std::atomic<bool> dawMidiActive{false};
     std::atomic<float> internalBpm{120.0f};
     std::atomic<float> effectiveBpm{120.0f};
     std::atomic<float> swingAmount{0.0f};
