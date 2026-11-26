@@ -144,24 +144,26 @@ internal object PresetLibraryPart1 {
             id = "rock_shuffle",
             name = "Blues-Rock Shuffle",
             genre = DrumGenre.ROCK,
-            bpm = 116,
-            swing = 0.55f,
-            recommendedKit = BuiltInKit.ACOUSTIC,
-            description = "Swung classic-rock boogie with bouncy kick",
-            mainA = fromAscii(16,
-                KICK  to "X...|...x|X...|...x",
-                SNARE to "....|X...|....|X...",
-                CHH   to "X..x|X..x|X..x|X..x"
+            bpm = 112,
+            timeSignature = TimeSignature.SIX_EIGHT,
+            recommendedKit = BuiltInKit.ROOM,
+            description = "True 12/8 triplet blues-rock shuffle with swung ride, kick pickups & ghost snares",
+            mainA = fromAscii(12,
+                KICK  to "X.x|...|X.x|...",
+                SNARE to "...|X.g|...|X.g",
+                CHH   to "X.x|X.x|X.x|X.x"
             ),
-            varB = fromAscii(16,
-                KICK  to "X...|...x|X..x|...x",
-                SNARE to "....|X..g|....|X..g",
-                RIDE  to "X..x|X..x|X..x|X..x"
+            varB = fromAscii(12,
+                KICK  to "X.x|..x|X.x|..x",
+                SNARE to "..g|X.g|..g|X.g",
+                RIDE  to "X.x|X.x|X.x|X.x",
+                CRASH to "X..|...|...|..."
             ),
-            fill = fromAscii(16,
-                KICK  to "X...|....|....|....",
-                SNARE to "....|X..x|X..x|X.X.",
-                LOW_TOM to "....|....|....|...X"
+            fill = fromAscii(12,
+                KICK  to "X..|...|X..|...",
+                SNARE to "...|X.x|x.x|...",
+                MID_TOM to "...|...|...|xx.",
+                LOW_TOM to "...|...|...|..X"
             )
         ),
 

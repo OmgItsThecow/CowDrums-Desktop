@@ -19,9 +19,9 @@ import kotlin.math.abs
 class DesktopPresetAndAudioTest {
 
     @Test
-    fun all95PresetsAreUniqueAndCategorized() {
+    fun all100PresetsAreUniqueAndCategorized() {
         val presets = PresetLibrary.builtInPresets
-        assertEquals("Expected 95 built-in presets", 95, presets.size)
+        assertEquals("Expected 100 built-in presets", 100, presets.size)
         assertEquals("IDs must be unique", presets.size, presets.map { it.id }.toSet().size)
         for (p in presets) {
             assertTrue("Missing subcategory on ${p.id}", p.subcategory.isNotBlank())

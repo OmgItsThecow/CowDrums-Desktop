@@ -443,6 +443,145 @@ internal object PresetLibraryPart4 {
                 MID_TOM to "....|....|..xx|....",
                 LOW_TOM to "....|....|....|XXXX"
             )
+        ),
+
+        // ========================== GENRE ACCURACY EXPANSION (5 -> 100 TOTAL) ==========================
+        DrumPreset(
+            id = "rock_texas_shuffle",
+            name = "Texas Blues Shuffle (12/8)",
+            genre = DrumGenre.ROCK,
+            subcategory = "Classic & Hard",
+            bpm = 122,
+            timeSignature = com.cowdrums.model.TimeSignature.SIX_EIGHT,
+            recommendedKit = BuiltInKit.ROOM,
+            description = "Stevie Ray Vaughan / ZZ Top driving 12/8 triplet shuffle with snare ghost roll",
+            mainA = fromAscii(12,
+                KICK  to "X..|..x|X..|..x",
+                SNARE to "..g|X.g|..g|X.g",
+                RIDE  to "X.x|X.x|X.x|X.x"
+            ),
+            varB = fromAscii(12,
+                KICK  to "X.x|..x|X.x|..x",
+                SNARE to "..g|X.g|..g|X.g",
+                CRASH to "X..|...|...|...",
+                OHH   to "X.x|X.x|X.x|X.x"
+            ),
+            fill = fromAscii(12,
+                KICK  to "X..|...|...|...",
+                SNARE to "...|X.x|X.x|...",
+                HIGH_TOM to "...|...|...|x..",
+                MID_TOM  to "...|...|...|.x.",
+                LOW_TOM  to "...|...|...|..X"
+            )
+        ),
+        DrumPreset(
+            id = "rock_tresillo_blues",
+            name = "Tresillo Blues-Rock",
+            genre = DrumGenre.ROCK,
+            subcategory = "Classic & Hard",
+            bpm = 114,
+            swing = 0.22f,
+            recommendedKit = BuiltInKit.ROOM,
+            description = "Authentic 3-3-2 Tresillo / Bo Diddley swagger (Black Keys / Rolling Stones)",
+            mainA = fromAscii(16,
+                KICK  to "X..X|..X.|X..X|..X.",
+                SNARE to "....|X...|....|X...",
+                LOW_TOM to "...x|..x.|...x|..x.",
+                CHH   to "X.x.|X.x.|X.x.|X.x."
+            ),
+            varB = fromAscii(16,
+                KICK  to "X..X|..X.|X..X|..X.",
+                SNARE to "....|X..g|....|X..g",
+                CRASH to "X...|....|X...|....",
+                RIDE  to "X..x|..x.|X..x|..x.",
+                LOW_TOM to "...x|..x.|...x|..x."
+            ),
+            fill = fromAscii(16,
+                KICK  to "X..X|....|....|....",
+                SNARE to "....|X..X|..X.|XXXX",
+                LOW_TOM to "....|....|...x|...."
+            )
+        ),
+        DrumPreset(
+            id = "postpunk_transmission",
+            name = "Post-Punk Driving 8ths",
+            genre = DrumGenre.ROCK,
+            subcategory = "Post-Punk",
+            bpm = 152,
+            recommendedKit = BuiltInKit.ROOM,
+            description = "Joy Division / The Cure urgent dry 8th-note snare & floor-tom post-punk",
+            mainA = fromAscii(16,
+                KICK  to "X...|..x.|X.x.|....",
+                SNARE to "....|X...|....|X...",
+                CHH   to "X.x.|X.x.|X.x.|X.x.",
+                LOW_TOM to "....|....|..x.|...."
+            ),
+            varB = fromAscii(16,
+                KICK  to "X.x.|....|X.x.|..x.",
+                SNARE to "....|X...|....|X...",
+                HIGH_TOM to "....|..x.|....|..x.",
+                LOW_TOM to "x...|....|x...|....",
+                OHH   to "X.x.|X.x.|X.x.|X.x."
+            ),
+            fill = fromAscii(16,
+                KICK  to "X...|....|X...|....",
+                SNARE to "....|X.x.|X.x.|XXXX"
+            )
+        ),
+        DrumPreset(
+            id = "indie_garage_revival",
+            name = "2000s Garage Indie",
+            genre = DrumGenre.ROCK,
+            subcategory = "Indie Rock",
+            bpm = 144,
+            recommendedKit = BuiltInKit.ROOM,
+            description = "Strokes / Franz Ferdinand tight dry snare & syncopated kick pickups",
+            mainA = fromAscii(16,
+                KICK  to "X...|..x.|..X.|....",
+                SNARE to "....|X...|....|X...",
+                CHH   to "X.x.|X.x.|X.x.|X.x."
+            ),
+            varB = fromAscii(16,
+                KICK  to "X...|..x.|..X.|.x..",
+                SNARE to "....|X...|....|X..g",
+                CRASH to "X...|....|....|....",
+                RIDE  to "X.x.|X.x.|X.x.|X.x."
+            ),
+            fill = fromAscii(16,
+                KICK  to "X...|....|X...|....",
+                SNARE to "....|X...|..x.|X.XX",
+                MID_TOM to "....|....|x...|....",
+                LOW_TOM to "....|....|...x|...."
+            )
+        ),
+        DrumPreset(
+            id = "ska_rocksteady_authentic",
+            name = "Jamaican Rocksteady Ska",
+            genre = DrumGenre.REGGAE_SKA,
+            subcategory = "Ska",
+            bpm = 134,
+            swing = 0.28f,
+            recommendedKit = BuiltInKit.ACOUSTIC,
+            description = "Authentic off-beat open hi-hat bark with cross-stick rimshot & horn-hit chorus",
+            mainA = fromAscii(16,
+                KICK  to "X...|....|X...|....",
+                RIM   to "....|X...|....|X...",
+                CHH   to "x...|x...|x...|x...",
+                OHH   to "..X.|..X.|..X.|..X."
+            ),
+            varB = fromAscii(16,
+                KICK  to "X..x|....|X...|..x.",
+                SNARE to "....|X...|....|X..g",
+                RIM   to "..x.|....|..x.|....",
+                OHH   to "..X.|..X.|..X.|..X."
+            ),
+            fill = fromAscii(16,
+                KICK  to "X...|....|....|....",
+                SNARE to "....|X..x|..x.|....",
+                HIGH_TOM to "....|....|x...|x...",
+                MID_TOM  to "....|....|...x|..x.",
+                LOW_TOM  to "....|....|....|...X"
+            )
         )
     )
 }
