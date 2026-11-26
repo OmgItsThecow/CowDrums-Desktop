@@ -171,7 +171,8 @@ private fun CowDrumsDesktopApp(vm: DrumMachineViewModel) {
                     },
                     onImportSf2 = {
                         pickOpenSf2File()?.let { vm.importSoundFont(it) }
-                    }
+                    },
+                    onInstallVst3 = vm::installBundledVst3ToDaw
                 )
 
                 if (!showMixer) {

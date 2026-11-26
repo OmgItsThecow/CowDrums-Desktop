@@ -1,0 +1,63 @@
+#pragma once
+
+#include "PluginProcessor.h"
+
+class CowDrumsEditor : public juce::AudioProcessorEditor,
+                       private juce::Timer,
+                       private juce::ListBoxModel {
+public:
+    explicit CowDrumsEditor(CowDrumsProcessor& p);
+    ~CowDrumsEditor() override;
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+private:
+    void timerCallback() override;
+
+    // ListBoxModel for 95-preset list
+    int getNumRows() override;
+    void paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected) override;
+    void listBoxItemClicked(int row, const juce::MouseEvent&) override;
+
+    void rebuildGenreFilters();
+    void rebuildSubcategoryFilters();
+    void rebuildFilteredPresets();
+    void refreshButtonColors();
+
+    CowDrumsProcessor& processor;
+
+    // Top Transport & Kit Bar
+    juce::TextButton playButton{"PLAY"};
+    juce::ToggleButton hostSyncToggle{"HOST SYNC"};
+    juce::Slider bpmSlider;
+    juce::Label bpmLabel;
+    juce::TextButton prevKitButton{"<"};
+    juce::Label kitLabel;
+    juce::TextButton nextKitButton{">"};
+    juce::TextButton loadSf2Button{"Load .SF2"};
+
+    // Left Preset Browser (Genre -> Subcategory -> List)
+    juce::ComboBox genreBox;
+    juce::ComboBox subcatBox;
+    juce::ListBox presetList;
+    std::vector<int> filteredPresetIndices;
+
+    // Right Pads & Live Controls
+    std::array<juce::TextButton, CowDrumsProcessor::NUM_INSTRUMENTS> padButtons;
+    std::array<int, CowDrumsProcessor::NUM_INSTRUMENTS> padFlashTicks{};
+
+    juce::TextButton mainAButton{"MAIN A"};
+    juce::TextButton varBButton{"VAR B"};
+    juce::TextButton fillButton{"FILL"};
+    juce::TextButton autoFillButton{"AUTO 4B"};
+
+    juce::Slider swingSlider;
+    juce::Label swingLabel;
+    juce::Slider gainSlider;
+    juce::Label gainLabel;
+
+    std::unique_ptr<juce::FileChooser> fileChooser;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CowDrumsEditor)
+};

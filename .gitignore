@@ -2,5 +2,7 @@
 .idea/
 .kotlin/
 build/
+vst3/build/
+resources-bundle/
 *.iml
 .DS_Store

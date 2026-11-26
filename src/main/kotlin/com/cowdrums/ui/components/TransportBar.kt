@@ -64,7 +64,8 @@ fun TransportBar(
     mixerOpen: Boolean,
     onExportWav: () -> Unit,
     onExportMidi: () -> Unit,
-    onImportSf2: () -> Unit
+    onImportSf2: () -> Unit,
+    onInstallVst3: () -> Unit
 ) {
     var showBpmDialog by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
@@ -213,6 +214,13 @@ fun TransportBar(
                             onClick = {
                                 showOverflowMenu = false
                                 onExportMidi()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Install VST3 Plugin to DAW", color = CowColors.AccentOrange, fontWeight = FontWeight.SemiBold) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onInstallVst3()
                             }
                         )
                     }

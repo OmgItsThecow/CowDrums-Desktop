@@ -21,22 +21,28 @@ The **Windows & Linux** desktop edition of **CowDrums** — a minimalist SoundFo
 - **WAV & Standard MIDI Export**: Offline-render any pattern to 44.1 kHz stereo `.wav` or GM Channel 10 `.mid`.
 - **Cross-Platform Persistence**: Custom presets, songs, and imported `.sf2` SoundFonts are stored in `~/.cowdrums/` on both Windows and Linux.
 
+- **Bundled Native VST3 Plugin (`CowDrums.vst3`, Windows & Linux)**:
+  - Built with **JUCE 8 + TinySoundFont** in [vst3/](vst3/), embedding all **95 presets** and the **GeneralUser GS** SoundFont directly into the plugin binary.
+  - Supports **DAW Host Sync** (tempo + playhead), **live MIDI input** (GM percussion), **Main A / Var B / Fill / Auto-Fill 4B**, custom `.sf2` loading, and full DAW project state save/restore.
+  - Bundled inside both the **Windows `.msi`** and **Linux `.deb`** installers — open CowDrums Desktop and click **`⋮ → Install VST3 Plugin to DAW`** to install `CowDrums.vst3` into `~/.vst3` (Linux) or `%LOCALAPPDATA%\Programs\Common\VST3` (Windows) in one click!
+
 ## Run or Build Locally
 
-Requires **JDK 21** and **Gradle 8.8+**:
+Requires **JDK 21**, **Gradle 8.8+**, and **CMake 3.22+ / C++17** (for VST3):
 
 ```bash
-# Run directly on Linux or Windows
+# 1. Build the native VST3 plugin (Linux or Windows)
+cmake -B vst3/build -S vst3 -DCMAKE_BUILD_TYPE=Release
+cmake --build vst3/build --target CowDrumsVST3_VST3 --config Release
+
+# 2. Run the Desktop app
 gradle run
 
-# Run unit tests
+# 3. Run unit tests
 gradle test
 
-# Build standalone runnable UberJAR (works on your OS)
-gradle packageUberJarForCurrentOS
-
-# Build native installer (.deb on Linux, .msi/.exe on Windows)
+# 4. Build native installer (.deb on Linux, .msi on Windows) with CowDrums.vst3 bundled
 gradle packageDistributionForCurrentOS
 ```
 
-Prebuilt **Windows** (`.msi` + `.jar`) and **Linux** (`.deb` + `.jar`) artifacts are automatically built on every push via [GitHub Actions](https://github.com/OmgItsThecow/CowDrums-Desktop/actions).
+Prebuilt **Windows** (`.msi` with VST3 + standalone `CowDrums.vst3` + `.jar`) and **Linux** (`.deb` with VST3 + standalone `CowDrums.vst3` + `.jar`) artifacts are automatically built on every push via [GitHub Actions](https://github.com/OmgItsThecow/CowDrums-Desktop/actions).

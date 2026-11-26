@@ -629,6 +629,44 @@ class DrumMachineViewModel {
         }
     }
 
+    fun installBundledVst3ToDaw() {
+        scope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val resDir = System.getProperty("compose.application.resources.dir")?.let { File(it) }
+                val candidates = listOfNotNull(
+                    resDir?.let { File(it, "CowDrums.vst3") },
+                    File("resources-bundle/linux/CowDrums.vst3"),
+                    File("resources-bundle/windows/CowDrums.vst3"),
+                    File("vst3/build/CowDrumsVST3_artefacts/Release/VST3/CowDrums.vst3")
+                )
+                val source = candidates.firstOrNull { it.exists() }
+                    ?: error("Bundled CowDrums.vst3 not found. Run from the installed Desktop package or build vst3/ first.")
+
+                val os = System.getProperty("os.name").lowercase()
+                val destRoot = if (os.contains("win")) {
+                    val localAppData = System.getenv("LOCALAPPDATA")
+                        ?: File(System.getProperty("user.home"), "AppData/Local").absolutePath
+                    File(localAppData, "Programs/Common/VST3")
+                } else {
+                    File(System.getProperty("user.home"), ".vst3")
+                }
+                destRoot.mkdirs()
+                val target = File(destRoot, "CowDrums.vst3")
+                if (target.exists()) target.deleteRecursively()
+                source.copyRecursively(target, overwrite = true)
+                target.absolutePath
+            }
+            _uiState.update {
+                it.copy(
+                    statusMessage = result.fold(
+                        onSuccess = { path -> "Installed CowDrums.vst3 to $path — rescan VST3 in your DAW!" },
+                        onFailure = { err -> err.message ?: "Could not install VST3 plugin" }
+                    )
+                )
+            }
+        }
+    }
+
     fun clearStatusMessage() {
         _uiState.update { it.copy(statusMessage = null) }
     }

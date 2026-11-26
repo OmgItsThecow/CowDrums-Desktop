@@ -34,8 +34,9 @@ compose.desktop {
             targetFormats(TargetFormat.Deb, TargetFormat.Msi, TargetFormat.Exe)
             packageName = "CowDrums Desktop"
             packageVersion = "1.0.0"
-            description = "CowDrums Desktop — SoundFont (.sf2) Drum Machine & Bass Workstation"
+            description = "CowDrums Desktop — SoundFont (.sf2) Drum Machine, Bass & VST3 Plugin"
             vendor = "CowDrums"
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("resources-bundle"))
 
             linux {
                 menuGroup = "AudioVideo"

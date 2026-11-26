@@ -1,4 +1,4 @@
-name: Build CowDrums Desktop (Windows & Linux)
+name: Build CowDrums Desktop + VST3 (Windows & Linux)
 
 on:
   push:
@@ -18,18 +18,39 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
-      - name: Run Unit Tests & Build Linux UberJAR + DEB
+
+      - name: Install Linux JUCE VST3 & DEB Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fakeroot libasound2-dev libfreetype-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libgl-dev libfontconfig-dev
+
+      - name: Build Native Linux VST3 Plugin (CowDrums.vst3)
+        run: |
+          cmake -B vst3/build -S vst3 -DCMAKE_BUILD_TYPE=Release
+          cmake --build vst3/build --target CowDrumsVST3_VST3 -j$(nproc)
+          mkdir -p resources-bundle/linux
+          cp -r vst3/build/CowDrumsVST3_artefacts/Release/VST3/CowDrums.vst3 resources-bundle/linux/
+
+      - name: Run Unit Tests & Build Linux DEB Installer (with VST3 bundled) + Standalone JAR
         run: gradle test packageUberJarForCurrentOS packageDeb --no-daemon
+
+      - name: Upload Linux DEB Installer (includes CowDrums.vst3)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CowDrums-Desktop-Linux-DEB-with-VST3
+          path: build/compose/binaries/main/deb/*.deb
+
+      - name: Upload Linux Standalone VST3 Plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: CowDrums-VST3-Linux
+          path: resources-bundle/linux/CowDrums.vst3
+
       - name: Upload Linux Standalone JAR
         uses: actions/upload-artifact@v4
         with:
           name: CowDrums-Desktop-Linux-JAR
           path: build/compose/jars/*.jar
-      - name: Upload Linux DEB Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: CowDrums-Desktop-Linux-DEB
-          path: build/compose/binaries/main/deb/*.deb
 
   build-windows:
     runs-on: windows-latest
@@ -42,15 +63,32 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
-      - name: Run Unit Tests & Build Windows UberJAR + MSI
+
+      - name: Build Native Windows VST3 Plugin (CowDrums.vst3)
+        shell: pwsh
+        run: |
+          cmake -B vst3/build -S vst3 -A x64
+          cmake --build vst3/build --target CowDrumsVST3_VST3 --config Release --parallel
+          New-Item -ItemType Directory -Force -Path resources-bundle/windows | Out-Null
+          Copy-Item -Recurse -Force vst3/build/CowDrumsVST3_artefacts/Release/VST3/CowDrums.vst3 resources-bundle/windows/
+
+      - name: Run Unit Tests & Build Windows MSI Installer (with VST3 bundled) + Standalone JAR
         run: gradle test packageUberJarForCurrentOS packageMsi --no-daemon
+
+      - name: Upload Windows MSI Installer (includes CowDrums.vst3)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CowDrums-Desktop-Windows-MSI-with-VST3
+          path: build/compose/binaries/main/msi/*.msi
+
+      - name: Upload Windows Standalone VST3 Plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: CowDrums-VST3-Windows
+          path: resources-bundle/windows/CowDrums.vst3
+
       - name: Upload Windows Standalone JAR
         uses: actions/upload-artifact@v4
         with:
           name: CowDrums-Desktop-Windows-JAR
           path: build/compose/jars/*.jar
-      - name: Upload Windows MSI Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: CowDrums-Desktop-Windows-MSI
-          path: build/compose/binaries/main/msi/*.msi
