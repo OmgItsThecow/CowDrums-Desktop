@@ -130,7 +130,6 @@ private:
     std::atomic<bool> hostSync{true};
     std::atomic<bool> internalPlaying{false};
     std::atomic<bool> isCurrentlyPlaying{false};
-    std::atomic<bool> dawMidiActive{false};
     std::atomic<float> internalBpm{120.0f};
     std::atomic<float> effectiveBpm{120.0f};
     std::atomic<float> swingAmount{0.0f};

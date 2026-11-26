@@ -272,19 +272,12 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
 
-    // Reset DAW MIDI auto-yield when transport stops
-    if (!hostIsPlaying) {
-        dawMidiActive.store(false);
-    }
-
     std::lock_guard<std::mutex> lock(synthMutex);
 
-    // Handle incoming DAW MIDI notes (GM percussion)
-    bool receivedDawNoteOn = false;
+    // Handle incoming DAW / MIDI pad controller notes (always playable on top of patterns)
     for (const auto metadata : midiMessages) {
         const auto msg = metadata.getMessage();
         if (msg.isNoteOn()) {
-            receivedDawNoteOn = true;
             int note = msg.getNoteNumber();
             triggerNoteLocked(note, msg.getFloatVelocity());
             for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
@@ -296,13 +289,7 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
 
-    // If Ableton/DAW is playing a MIDI clip into CowDrums, automatically yield the internal
-    // sequencer so the DAW MIDI clip never conflicts with the internal pattern!
-    if (receivedDawNoteOn && hostIsPlaying) {
-        dawMidiActive.store(true);
-    }
-
-    bool playNow = internalPlaying.load() || (hostSync.load() && hostIsPlaying && !dawMidiActive.load());
+    bool playNow = internalPlaying.load() || (hostSync.load() && hostIsPlaying);
     isCurrentlyPlaying.store(playNow);
     effectiveBpm.store(static_cast<float>(bpmNow));
 
