@@ -490,7 +490,7 @@ internal object PresetLibraryPart1 {
             genre = DrumGenre.HIP_HOP,
             bpm = 94,
             swing = 0.22f,
-            recommendedKit = BuiltInKit.TR_808,
+            recommendedKit = BuiltInKit.BOOM_BAP,
             description = "Cruising LA bounce with punchy claps & cowbell",
             mainA = fromAscii(16,
                 KICK  to "X...|..x.|X...|....",

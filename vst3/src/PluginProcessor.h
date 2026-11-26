@@ -36,7 +36,7 @@ struct KitInfo {
 class CowDrumsProcessor : public juce::AudioProcessor {
 public:
     static constexpr int NUM_INSTRUMENTS = 12;
-    static constexpr int NUM_KITS = 11;
+    static constexpr int NUM_KITS = 16;
 
     static const std::array<int, NUM_INSTRUMENTS> GM_NOTES;
     static const std::array<const char*, NUM_INSTRUMENTS> PAD_LABELS;

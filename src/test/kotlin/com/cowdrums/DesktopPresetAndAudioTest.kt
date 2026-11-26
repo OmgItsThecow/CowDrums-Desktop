@@ -39,7 +39,7 @@ class DesktopPresetAndAudioTest {
         val bytes = stream!!.use { it.readBytes() }
 
         val presets = SoundFont2Parser.listPresets(bytes)
-        assertEquals(18, presets.size)
+        assertEquals(23, presets.size)
 
         for (kit in BuiltInKit.entries) {
             val samples = SoundFont2Parser.loadKitSamples(bytes, bank = 128, preset = kit.sf2Preset, applyLoFi = kit.applyLoFiFilter)

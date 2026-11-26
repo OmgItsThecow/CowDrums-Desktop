@@ -171,7 +171,12 @@ enum class BuiltInKit(
     ELECTRONIC("Electronic", "Crisp modern electronic kit (SF2)", 24),
     LATIN("Standard 2 / Latin", "Bright acoustic kit with rim & perc (SF2)", 1),
     ORCHESTRAL("Orchestral", "Concert bass drum, snare & cymbals (SF2)", 48),
-    LOFI("Lo-Fi Warm", "Vintage tape-filtered acoustic kit (SF2)", 0, applyLoFiFilter = true)
+    LOFI("Lo-Fi Warm", "Vintage tape-filtered acoustic kit (SF2)", 0, applyLoFiFilter = true),
+    INDIE_GARAGE("Indie & Post-Punk", "Dry dampened tape-warm garage & post-punk kit (SF2)", 56),
+    SYNTHWAVE_80S("80s Synthwave", "Linn/DMX punch with gated-reverb snare & toms (SF2)", 57),
+    REGGAE_DUB("Reggae / Dub", "Deep kick, high-tuned snare & dub spring rimshot (SF2)", 58),
+    TECHNO_PSY("Techno / Psy 909", "Laser-tight psytrance/techno kick & bright 909 hats (SF2)", 59),
+    BOOM_BAP("Boom-Bap MPC", "Dusty 12-bit MPC60/SP-1200 hip-hop breakbeat kit (SF2)", 60)
 }
 
 @Serializable

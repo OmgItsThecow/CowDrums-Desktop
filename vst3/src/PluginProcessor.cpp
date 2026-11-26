@@ -26,7 +26,12 @@ const std::array<KitInfo, CowDrumsProcessor::NUM_KITS> CowDrumsProcessor::BUILTI
     {"24. ELECTRONIC", 24},
     {"1. STANDARD 2 / LATIN", 1},
     {"48. ORCHESTRAL", 48},
-    {"0. LO-FI WARM", 0}
+    {"0. LO-FI WARM", 0},
+    {"56. INDIE & POST-PUNK", 56},
+    {"57. 80S SYNTHWAVE", 57},
+    {"58. REGGAE / DUB", 58},
+    {"59. TECHNO / PSY 909", 59},
+    {"60. BOOM-BAP MPC", 60}
 }};
 
 CowDrumsProcessor::CowDrumsProcessor()
@@ -486,6 +491,11 @@ int CowDrumsProcessor::kitNameToIndex(const juce::String& name) {
     if (name == "LATIN") return 8;
     if (name == "ORCHESTRAL") return 9;
     if (name == "LOFI") return 10;
+    if (name == "INDIE_GARAGE") return 11;
+    if (name == "SYNTHWAVE_80S") return 12;
+    if (name == "REGGAE_DUB") return 13;
+    if (name == "TECHNO_PSY") return 14;
+    if (name == "BOOM_BAP") return 15;
     return 1;
 }
 
