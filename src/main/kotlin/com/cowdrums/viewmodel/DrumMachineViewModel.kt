@@ -643,23 +643,48 @@ class DrumMachineViewModel {
                     ?: error("Bundled CowDrums.vst3 not found. Run from the installed Desktop package or build vst3/ first.")
 
                 val os = System.getProperty("os.name").lowercase()
-                val destRoot = if (os.contains("win")) {
-                    val localAppData = System.getenv("LOCALAPPDATA")
-                        ?: File(System.getProperty("user.home"), "AppData/Local").absolutePath
-                    File(localAppData, "Programs/Common/VST3")
+                if (os.contains("win")) {
+                    // Ableton Live on Windows scans C:\Program Files\Common Files\VST3 by default
+                    val commonProg = System.getenv("CommonProgramFiles") ?: "C:\\Program Files\\Common Files"
+                    val systemVst3 = File(commonProg, "VST3")
+                    val target = File(systemVst3, "CowDrums.vst3")
+
+                    val directOk = runCatching {
+                        systemVst3.mkdirs()
+                        if (target.exists()) target.deleteRecursively()
+                        source.copyRecursively(target, overwrite = true)
+                    }.isSuccess
+
+                    if (!directOk) {
+                        // Elevate via Windows UAC prompt so it lands right in Ableton's default VST3 folder
+                        val srcEsc = source.absolutePath.replace("'", "''")
+                        val dstEsc = target.absolutePath.replace("'", "''")
+                        val rootEsc = systemVst3.absolutePath.replace("'", "''")
+                        val psCmd = "New-Item -ItemType Directory -Force -Path '$rootEsc' | Out-Null; " +
+                            "Copy-Item -Recurse -Force '$srcEsc' '$dstEsc'"
+                        val proc = ProcessBuilder(
+                            "powershell", "-NoProfile", "-Command",
+                            "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-Command',\"$psCmd\""
+                        ).start()
+                        proc.waitFor()
+                        if (!target.exists()) {
+                            error("Admin permission was cancelled. Manually copy CowDrums.vst3 to ${systemVst3.absolutePath}")
+                        }
+                    }
+                    target.absolutePath
                 } else {
-                    File(System.getProperty("user.home"), ".vst3")
+                    val destRoot = File(System.getProperty("user.home"), ".vst3")
+                    destRoot.mkdirs()
+                    val target = File(destRoot, "CowDrums.vst3")
+                    if (target.exists()) target.deleteRecursively()
+                    source.copyRecursively(target, overwrite = true)
+                    target.absolutePath
                 }
-                destRoot.mkdirs()
-                val target = File(destRoot, "CowDrums.vst3")
-                if (target.exists()) target.deleteRecursively()
-                source.copyRecursively(target, overwrite = true)
-                target.absolutePath
             }
             _uiState.update {
                 it.copy(
                     statusMessage = result.fold(
-                        onSuccess = { path -> "Installed CowDrums.vst3 to $path — rescan VST3 in your DAW!" },
+                        onSuccess = { path -> "Installed CowDrums.vst3 to $path — click Rescan in Ableton Live!" },
                         onFailure = { err -> err.message ?: "Could not install VST3 plugin" }
                     )
                 )
