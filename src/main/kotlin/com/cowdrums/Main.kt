@@ -57,6 +57,9 @@ import com.cowdrums.ui.screens.SongScreen
 import com.cowdrums.ui.theme.CowColors
 import com.cowdrums.ui.theme.CowDrumsTheme
 import com.cowdrums.viewmodel.DrumMachineViewModel
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import org.jetbrains.skia.Image as SkiaImage
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -72,6 +75,12 @@ private enum class CowMode(val title: String, val icon: ImageVector) {
 fun main() = application {
     val vm = remember { DrumMachineViewModel() }
     val windowState = rememberWindowState(width = 1100.dp, height = 740.dp)
+    val windowIcon = remember {
+        runCatching {
+            val bytes = vm.javaClass.getResourceAsStream("/icon/cowdrums_icon.png")?.use { it.readBytes() }
+            bytes?.let { BitmapPainter(SkiaImage.makeFromEncoded(it).toComposeImageBitmap()) }
+        }.getOrNull()
+    }
 
     DisposableEffect(Unit) {
         onDispose { vm.dispose() }
@@ -83,6 +92,7 @@ fun main() = application {
             exitApplication()
         },
         title = "CowDrums Desktop",
+        icon = windowIcon,
         state = windowState,
         onPreviewKeyEvent = { event ->
             if (event.type == KeyEventType.KeyDown) {

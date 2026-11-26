@@ -41,11 +41,13 @@ compose.desktop {
             linux {
                 menuGroup = "AudioVideo"
                 shortcut = true
+                iconFile.set(project.file("src/main/resources/icon/cowdrums_icon.png"))
             }
             windows {
                 menuGroup = "CowDrums"
                 shortcut = true
                 perUserInstall = true
+                iconFile.set(project.file("src/main/resources/icon/cowdrums_icon.ico"))
             }
         }
     }
