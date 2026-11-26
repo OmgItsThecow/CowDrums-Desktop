@@ -173,6 +173,67 @@ int CowDrumsProcessor::getCurrentStepCount() const {
     return presets[static_cast<size_t>(idx)].mainA.stepCount;
 }
 
+juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile(int bars) const {
+    if (presets.empty()) return {};
+    int idx = juce::jlimit(0, static_cast<int>(presets.size()) - 1, activePresetIdx.load());
+    const auto& preset = presets[static_cast<size_t>(idx)];
+    int slot = playingSlot.load();
+    const StepPatternData& pat = (slot == 0) ? preset.mainA : (slot == 1 ? preset.varB : preset.fill);
+    const juce::String slotTag = (slot == 0) ? "MainA" : (slot == 1 ? "VarB" : "Fill");
+
+    const int tpqn = 480;
+    const int baseStepTicks = tpqn / 4; // 120 ticks per 16th note
+    const double swingTicks = static_cast<double>(swingAmount.load()) * 0.45 * baseStepTicks;
+    const double bpm = juce::jlimit(40.0, 240.0, static_cast<double>(effectiveBpm.load()));
+
+    juce::MidiMessageSequence seq;
+    seq.addEvent(juce::MidiMessage::tempoMetaEvent(static_cast<int>(60000000.0 / bpm)), 0.0);
+
+    int stepCount = std::max(1, pat.stepCount);
+    int totalSteps = stepCount * std::max(1, bars);
+    double tickCursor = 0.0;
+
+    for (int i = 0; i < totalSteps; ++i) {
+        int s = i % stepCount;
+        for (int inst = 0; inst < NUM_INSTRUMENTS; ++inst) {
+            int velLevel = pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(s)];
+            if (velLevel <= 0) continue;
+            juce::uint8 vel = (velLevel == 1) ? 52 : (velLevel == 2 ? 94 : 124);
+            int note = GM_NOTES[static_cast<size_t>(inst)];
+            // MIDI Channel 10 (1-indexed in JUCE) = GM Drums
+            seq.addEvent(juce::MidiMessage::noteOn(10, note, vel), tickCursor);
+            seq.addEvent(juce::MidiMessage::noteOff(10, note), tickCursor + 40.0);
+        }
+        double dur = (s % 2 == 0)
+            ? (baseStepTicks + swingTicks)
+            : std::max(30.0, baseStepTicks - swingTicks);
+        tickCursor += dur;
+    }
+
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    juce::MidiFile midiFile;
+    midiFile.setTicksPerQuarterNote(tpqn);
+    midiFile.addTrack(seq);
+
+    juce::String safeName = preset.name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-");
+    if (safeName.isEmpty()) safeName = "CowDrums_Pattern";
+    juce::String fileName = "CowDrums_" + safeName + "_" + slotTag + "_" + juce::String(static_cast<int>(bpm)) + "bpm.mid";
+
+    juce::File outDir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("CowDrums_MIDI");
+    outDir.createDirectory();
+    juce::File outFile = outDir.getChildFile(fileName);
+    outFile.deleteFile();
+
+    juce::FileOutputStream fos(outFile);
+    if (fos.openedOk()) {
+        midiFile.writeTo(fos, 0);
+        fos.flush();
+    }
+    return outFile;
+}
+
 void CowDrumsProcessor::triggerNoteLocked(int midiNote, float velocity) {
     if (soundFont == nullptr) return;
     // Closed HH (42) cleanly chokes Open HH (46)

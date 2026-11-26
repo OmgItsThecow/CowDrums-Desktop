@@ -101,6 +101,7 @@ public:
     void triggerPadManual(int instrumentIndex, float velocity = 0.92f);
     bool loadExternalSoundFont(const juce::File& file);
     juce::String getActiveSf2Label() const;
+    juce::File exportActivePatternToTempMidiFile(int bars = 2) const;
 
     int getCurrentStep() const { return currentStep.load(); }
     int getCurrentStepCount() const;

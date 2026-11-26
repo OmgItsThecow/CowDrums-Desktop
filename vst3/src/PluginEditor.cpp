@@ -11,9 +11,11 @@ namespace CowPalette {
 }
 
 CowDrumsEditor::CowDrumsEditor(CowDrumsProcessor& p)
-    : AudioProcessorEditor(&p), processor(p)
+    : AudioProcessorEditor(&p), processor(p), midiDragHandle(p)
 {
-    setSize(860, 560);
+    setResizable(true, true);
+    setResizeLimits(720, 460, 1600, 1100);
+    setSize(880, 560);
 
     // Top Transport Bar
     addAndMakeVisible(playButton);
@@ -114,7 +116,7 @@ CowDrumsEditor::CowDrumsEditor(CowDrumsProcessor& p)
         };
     }
 
-    // Slot & Fill Controls
+    // Slot, Fill & MIDI Drag Controls
     addAndMakeVisible(mainAButton);
     mainAButton.onClick = [this] { processor.setSlot(0); refreshButtonColors(); };
 
@@ -129,6 +131,8 @@ CowDrumsEditor::CowDrumsEditor(CowDrumsProcessor& p)
         processor.setAutoFill4B(!processor.isAutoFill4B());
         refreshButtonColors();
     };
+
+    addAndMakeVisible(midiDragHandle);
 
     // Swing & Master Sliders
     addAndMakeVisible(swingSlider);
@@ -173,6 +177,32 @@ CowDrumsEditor::CowDrumsEditor(CowDrumsProcessor& p)
 
 CowDrumsEditor::~CowDrumsEditor() {
     stopTimer();
+}
+
+void CowDrumsEditor::MidiDragHandle::paint(juce::Graphics& g) {
+    auto bounds = getLocalBounds().toFloat().reduced(0.5f);
+    g.setColour(CowPalette::Orange.withAlpha(0.18f));
+    g.fillRoundedRectangle(bounds, 5.0f);
+    g.setColour(CowPalette::Orange);
+    g.drawRoundedRectangle(bounds, 5.0f, 1.2f);
+
+    g.setColour(CowPalette::Orange);
+    g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+    g.drawText("DRAG MIDI >>", getLocalBounds(), juce::Justification::centred, false);
+}
+
+void CowDrumsEditor::MidiDragHandle::mouseDrag(const juce::MouseEvent& e) {
+    if (dragStarted || e.getDistanceFromDragStart() < 4) return;
+    dragStarted = true;
+    juce::File midiFile = processor.exportActivePatternToTempMidiFile(2);
+    if (midiFile.existsAsFile()) {
+        juce::DragAndDropContainer::performExternalDragDropOfFiles(
+            juce::StringArray{midiFile.getFullPathName()},
+            false,
+            this
+        );
+    }
+    dragStarted = false;
 }
 
 void CowDrumsEditor::rebuildGenreFilters() {
@@ -233,7 +263,6 @@ void CowDrumsEditor::paintListBoxItem(int rowNumber, juce::Graphics& g, int widt
     g.setColour(CowPalette::BorderSubtle);
     g.drawHorizontalLine(height - 1, 0.0f, static_cast<float>(width));
 
-    // Signature orange indicator circle on left
     g.setColour(isActive ? CowPalette::Orange : CowPalette::BorderSubtle);
     g.fillEllipse(8.0f, (height - 12.0f) * 0.5f, 12.0f, 12.0f);
 
@@ -314,21 +343,20 @@ void CowDrumsEditor::timerCallback() {
 void CowDrumsEditor::paint(juce::Graphics& g) {
     g.fillAll(CowPalette::BgDark);
 
-    // Header bar separator
     g.setColour(CowPalette::BorderSubtle);
     g.drawHorizontalLine(52, 0.0f, static_cast<float>(getWidth()));
 
-    // Brand title
     g.setColour(CowPalette::Orange);
     g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
-    g.drawText("COWDRUMS VST3", 14, 14, 150, 24, juce::Justification::centredLeft);
+    g.drawText("COWDRUMS VST3", 14, 14, 144, 24, juce::Justification::centredLeft);
 
-    // Step LED strip on right side above pads
-    int stepCount = processor.getCurrentStepCount();
-    int curStep = processor.getCurrentStep();
-    int stripX = 330;
+    // Responsive Step LED strip on right side above pads
+    int leftColW = juce::jlimit(260, 400, static_cast<int>(getWidth() * 0.36f));
+    int stripX = leftColW + 24;
     int stripY = 66;
     int stripW = getWidth() - stripX - 14;
+    int stepCount = processor.getCurrentStepCount();
+    int curStep = processor.getCurrentStep();
     float cellW = static_cast<float>(stripW) / static_cast<float>(std::max(1, stepCount));
     for (int s = 0; s < stepCount; ++s) {
         bool active = (s == curStep) && processor.isPlayingNow();
@@ -338,26 +366,40 @@ void CowDrumsEditor::paint(juce::Graphics& g) {
 }
 
 void CowDrumsEditor::resized() {
-    // Top bar
-    playButton.setBounds(172, 11, 70, 30);
-    hostSyncToggle.setBounds(250, 12, 104, 28);
-    bpmLabel.setBounds(358, 12, 68, 28);
-    bpmSlider.setBounds(426, 14, 100, 24);
-    prevKitButton.setBounds(536, 12, 28, 28);
-    kitLabel.setBounds(566, 12, 174, 28);
-    nextKitButton.setBounds(742, 12, 28, 28);
-    loadSf2Button.setBounds(778, 12, 70, 28);
+    const int w = getWidth();
+    const int h = getHeight();
 
-    // Left Preset Browser (Genre -> Subcategory -> 95-preset List)
-    genreBox.setBounds(12, 64, 148, 28);
-    subcatBox.setBounds(166, 64, 150, 28);
-    presetList.setBounds(12, 98, 304, getHeight() - 110);
+    // Responsive top bar
+    playButton.setBounds(162, 11, 66, 30);
+    hostSyncToggle.setBounds(234, 12, 98, 28);
+    bpmLabel.setBounds(336, 12, 62, 28);
 
-    // Right 4x3 Monochrome Drum Pads
-    int padAreaX = 330;
+    int rightEdge = w - 12;
+    loadSf2Button.setBounds(rightEdge - 72, 12, 72, 28);
+    rightEdge -= 78;
+    nextKitButton.setBounds(rightEdge - 26, 12, 26, 28);
+    rightEdge -= 28;
+    int kitW = juce::jlimit(120, 210, w / 5);
+    kitLabel.setBounds(rightEdge - kitW, 12, kitW, 28);
+    rightEdge -= (kitW + 2);
+    prevKitButton.setBounds(rightEdge - 26, 12, 26, 28);
+    rightEdge -= 34;
+
+    int bpmSliderW = std::max(50, rightEdge - 402);
+    bpmSlider.setBounds(400, 14, bpmSliderW, 24);
+
+    // Responsive Left Preset Browser (36% of window width, clamped 260..400px)
+    int leftColW = juce::jlimit(260, 400, static_cast<int>(w * 0.36f));
+    int halfLeft = (leftColW - 6) / 2;
+    genreBox.setBounds(12, 64, halfLeft, 28);
+    subcatBox.setBounds(12 + halfLeft + 6, 64, leftColW - halfLeft - 6, 28);
+    presetList.setBounds(12, 98, leftColW, h - 110);
+
+    // Responsive Right 4x3 Monochrome Drum Pads
+    int padAreaX = leftColW + 24;
     int padAreaY = 86;
-    int padAreaW = getWidth() - padAreaX - 14;
-    int padAreaH = getHeight() - padAreaY - 118;
+    int padAreaW = w - padAreaX - 14;
+    int padAreaH = std::max(140, h - padAreaY - 120);
     int cols = 4;
     int rows = 3;
     int gap = 6;
@@ -377,21 +419,24 @@ void CowDrumsEditor::resized() {
         );
     }
 
-    // Slot & Fill Controls row
-    int ctrlY = getHeight() - 104;
-    int btnW = (padAreaW - gap * 3) / 4;
+    // Slot, Fill & DRAG MIDI row (5 buttons across)
+    int ctrlY = h - 104;
+    int btnW = (padAreaW - gap * 4) / 5;
     mainAButton.setBounds(padAreaX, ctrlY, btnW, 34);
     varBButton.setBounds(padAreaX + (btnW + gap), ctrlY, btnW, 34);
     fillButton.setBounds(padAreaX + (btnW + gap) * 2, ctrlY, btnW, 34);
     autoFillButton.setBounds(padAreaX + (btnW + gap) * 3, ctrlY, btnW, 34);
+    midiDragHandle.setBounds(padAreaX + (btnW + gap) * 4, ctrlY, padAreaW - (btnW + gap) * 4, 34);
 
-    // Swing & Master Volume row
-    int sliderY = getHeight() - 54;
-    int halfW = (padAreaW - 12) / 2;
-    swingLabel.setBounds(padAreaX, sliderY, 92, 26);
-    swingSlider.setBounds(padAreaX + 92, sliderY, halfW - 92, 26);
+    // Swing & Master Volume row (leave bottom-right 18px clear for JUCE corner resize handle)
+    int sliderY = h - 54;
+    int sliderAreaW = padAreaW - 18;
+    int halfW = (sliderAreaW - 12) / 2;
+    swingLabel.setBounds(padAreaX, sliderY, 86, 26);
+    swingSlider.setBounds(padAreaX + 86, sliderY, std::max(40, halfW - 86), 26);
 
     int rightX = padAreaX + halfW + 12;
-    gainLabel.setBounds(rightX, sliderY, 76, 26);
-    gainSlider.setBounds(rightX + 76, sliderY, halfW - 76, 26);
+    gainLabel.setBounds(rightX, sliderY, 72, 26);
+    gainSlider.setBounds(rightX + 72, sliderY, std::max(40, halfW - 72), 26);
 }
+

@@ -47,10 +47,24 @@ private:
     std::array<juce::TextButton, CowDrumsProcessor::NUM_INSTRUMENTS> padButtons;
     std::array<int, CowDrumsProcessor::NUM_INSTRUMENTS> padFlashTicks{};
 
+    class MidiDragHandle : public juce::Component {
+    public:
+        explicit MidiDragHandle(CowDrumsProcessor& proc) : processor(proc) {
+            setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        }
+        void paint(juce::Graphics& g) override;
+        void mouseDrag(const juce::MouseEvent& e) override;
+        void mouseUp(const juce::MouseEvent&) override { dragStarted = false; }
+    private:
+        CowDrumsProcessor& processor;
+        bool dragStarted = false;
+    };
+
     juce::TextButton mainAButton{"MAIN A"};
     juce::TextButton varBButton{"VAR B"};
     juce::TextButton fillButton{"FILL"};
     juce::TextButton autoFillButton{"AUTO 4B"};
+    MidiDragHandle midiDragHandle;
 
     juce::Slider swingSlider;
     juce::Label swingLabel;
