@@ -4,7 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,14 +24,20 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,23 +45,31 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cowdrums.model.BuiltInKit
 import com.cowdrums.model.DrumInstrument
+import com.cowdrums.model.GmDrumCatalog
+import com.cowdrums.model.NoteRepeatRate
+import com.cowdrums.model.PadConfig
 import com.cowdrums.model.PatternSlot
 import com.cowdrums.model.SoundSource
+import com.cowdrums.ui.components.PadContextMenuDialog
 import com.cowdrums.ui.theme.CowColors
 import com.cowdrums.viewmodel.DrumMachineUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Minimalist drum pad screen modeled directly after SF Drum Machine:
  * - < 8. ROOM > kit switcher bar
  * - Compact tool strip (Clear, A/B/FILL, /16, Metronome, Rec dot)
- * - Clean dark charcoal pads with thin hairline borders and minimalist white line-art drum icons
+ * - Clean dark charcoal pads with thin hairline borders, minimalist white line-art icons,
+ *   right-click / corner-dot pad context menu (Sound/Kit/WAV, Choke/MIDI Learn/Repeat, Pattern actions)
  */
 @Composable
 fun PerformScreen(
@@ -66,11 +82,31 @@ fun PerformScreen(
     onClearSlot: () -> Unit,
     onPrevKit: () -> Unit,
     onNextKit: () -> Unit,
-    onOpenKitPicker: () -> Unit
+    onOpenKitPicker: () -> Unit,
+    onSelectPadGmSound: (DrumInstrument, Int) -> Unit,
+    onSelectPadKitOverride: (DrumInstrument, BuiltInKit) -> Unit,
+    onPickCustomWavForPad: (DrumInstrument) -> Unit,
+    onResetPadSound: (DrumInstrument) -> Unit,
+    onSetPadChokeGroup: (DrumInstrument, Int) -> Unit,
+    onStartMidiLearn: (DrumInstrument) -> Unit,
+    onCancelMidiLearn: () -> Unit,
+    onResetPadMidiNote: (DrumInstrument) -> Unit,
+    onSetPadNoteRepeat: (DrumInstrument, NoteRepeatRate) -> Unit,
+    onClearPadRow: (DrumInstrument) -> Unit,
+    onFillPadEveryN: (DrumInstrument, Int) -> Unit,
+    onHumanizePadRow: (DrumInstrument) -> Unit
 ) {
     val flashMap = remember { mutableStateMapOf<DrumInstrument, Long>() }
+    var contextMenuPad by remember { mutableStateOf<DrumInstrument?>(null) }
 
-    LaunchedEffect(flashMap.size) {
+    LaunchedEffect(state.externalPadFlash) {
+        val ext = state.externalPadFlash
+        if (ext != null) {
+            flashMap[ext.first] = ext.second
+        }
+    }
+
+    LaunchedEffect(flashMap.size, state.externalPadFlash) {
         if (flashMap.isNotEmpty()) {
             delay(100)
             val now = System.currentTimeMillis()
@@ -207,7 +243,7 @@ fun PerformScreen(
             }
         }
 
-        // 12 Clean Monochrome Charcoal Pads (4 columns x 3 rows — matches SF Drum Machine's 4-column grid)
+        // 12 Clean Monochrome Charcoal Pads (4 columns x 3 rows — right-click or click '...' for Pad Menu)
         val padOrder = listOf(
             DrumInstrument.KICK, DrumInstrument.SNARE, DrumInstrument.CHH, DrumInstrument.OHH,
             DrumInstrument.HIGH_TOM, DrumInstrument.MID_TOM, DrumInstrument.LOW_TOM, DrumInstrument.RIDE,
@@ -232,21 +268,61 @@ fun PerformScreen(
                             state.currentStep >= 0 &&
                             activePattern.velocityAt(inst, state.currentStep) > 0
                         val isLit = seqHit || flashMap.containsKey(inst)
+                        val cfg = state.padConfigs[inst] ?: PadConfig(
+                            chokeGroup = inst.chokeGroup,
+                            midiInputNote = inst.gmNote
+                        )
                         MinimalDrumPad(
                             instrument = inst,
+                            config = cfg,
+                            bpm = state.bpm,
                             isLit = isLit,
+                            isMidiLearning = state.midiLearnInstrument == inst,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxSize(),
                             onHit = { vel ->
                                 flashMap[inst] = System.currentTimeMillis()
                                 onTriggerPad(inst, vel)
-                            }
+                            },
+                            onOpenMenu = { contextMenuPad = inst }
                         )
                     }
                 }
             }
         }
+    }
+
+    val menuInst = contextMenuPad
+    if (menuInst != null) {
+        val cfg = state.padConfigs[menuInst] ?: PadConfig(
+            chokeGroup = menuInst.chokeGroup,
+            midiInputNote = menuInst.gmNote
+        )
+        PadContextMenuDialog(
+            instrument = menuInst,
+            config = cfg,
+            activeSlot = state.selectedSlot,
+            isMidiLearning = state.midiLearnInstrument == menuInst,
+            onDismiss = {
+                if (state.midiLearnInstrument == menuInst) onCancelMidiLearn()
+                contextMenuPad = null
+            },
+            onSelectGmSound = { gm -> onSelectPadGmSound(menuInst, gm) },
+            onSelectKitOverride = { kit -> onSelectPadKitOverride(menuInst, kit) },
+            onPickCustomWav = { onPickCustomWavForPad(menuInst) },
+            onResetPadSound = { onResetPadSound(menuInst) },
+            onSetChokeGroup = { grp -> onSetPadChokeGroup(menuInst, grp) },
+            onToggleMidiLearn = {
+                if (state.midiLearnInstrument == menuInst) onCancelMidiLearn()
+                else onStartMidiLearn(menuInst)
+            },
+            onResetMidiNote = { onResetPadMidiNote(menuInst) },
+            onSetNoteRepeat = { rate -> onSetPadNoteRepeat(menuInst, rate) },
+            onClearPadRow = { onClearPadRow(menuInst) },
+            onFillPadEveryN = { n -> onFillPadEveryN(menuInst, n) },
+            onHumanizePadRow = { onHumanizePadRow(menuInst) }
+        )
     }
 }
 
@@ -272,9 +348,13 @@ private fun MinimalSlotChip(label: String, active: Boolean, onClick: () -> Unit)
 @Composable
 private fun MinimalDrumPad(
     instrument: DrumInstrument,
+    config: PadConfig,
+    bpm: Int,
     isLit: Boolean,
+    isMidiLearning: Boolean,
     modifier: Modifier = Modifier,
-    onHit: (Float) -> Unit
+    onHit: (Float) -> Unit,
+    onOpenMenu: () -> Unit
 ) {
     val label = when (instrument) {
         DrumInstrument.KICK -> "BD"
@@ -291,39 +371,139 @@ private fun MinimalDrumPad(
         DrumInstrument.PERC -> "CB"
     }
 
+    val subtitle = when {
+        isMidiLearning -> "MIDI LEARN..."
+        config.customWavName != null -> config.customWavName
+        config.kitOverride != null -> config.kitOverride.displayName
+        config.soundGmNote != null && config.soundGmNote != instrument.gmNote -> GmDrumCatalog.nameFor(config.soundGmNote)
+        else -> null
+    }
+
+    val scope = rememberCoroutineScope()
+    val latestRepeat by rememberUpdatedState(config.noteRepeat)
+    val latestBpm by rememberUpdatedState(bpm)
+    val latestOnHit by rememberUpdatedState(onHit)
+    val latestOnOpenMenu by rememberUpdatedState(onOpenMenu)
+
     Box(
-        contentAlignment = Alignment.Center,
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isLit) CowColors.AccentOrange.copy(alpha = 0.24f) else CowColors.SurfaceCard)
+            .background(
+                when {
+                    isMidiLearning -> CowColors.AccentOrange.copy(alpha = 0.28f)
+                    isLit -> CowColors.AccentOrange.copy(alpha = 0.24f)
+                    else -> CowColors.SurfaceCard
+                }
+            )
             .border(
-                width = if (isLit) 1.5.dp else 1.dp,
-                color = if (isLit) CowColors.AccentOrange else CowColors.BorderSubtle,
+                width = if (isLit || isMidiLearning) 1.5.dp else 1.dp,
+                color = if (isLit || isMidiLearning) CowColors.AccentOrange else CowColors.BorderSubtle,
                 shape = RoundedCornerShape(6.dp)
             )
             .pointerInput(instrument) {
-                detectTapGestures(
-                    onPress = { offset ->
-                        val relY = (offset.y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val isRightClick = currentEvent.buttons.isSecondaryPressed
+                    if (isRightClick) {
+                        down.consume()
+                        latestOnOpenMenu()
+                        waitForUpOrCancellation()
+                    } else {
+                        val relY = (down.position.y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
                         val vel = 0.50f + relY * 0.50f
-                        onHit(vel)
+                        latestOnHit(vel)
+
+                        val rate = latestRepeat
+                        val repeatJob = if (rate != NoteRepeatRate.OFF) {
+                            scope.launch {
+                                val intervalMs = ((60_000.0 / latestBpm.coerceIn(40, 240)) / rate.beatsDivisor)
+                                    .toLong().coerceAtLeast(35L)
+                                while (true) {
+                                    delay(intervalMs)
+                                    latestOnHit(vel)
+                                }
+                            }
+                        } else null
+
+                        waitForUpOrCancellation()
+                        repeatJob?.cancel()
                     }
-                )
+                }
             }
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Subtle top-left status pill (Note Repeat or custom indicator)
+        if (config.noteRepeat != NoteRepeatRate.OFF || config.hasCustomSound) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (config.hasCustomSound) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(CowColors.AccentOrange)
+                    )
+                }
+                if (config.noteRepeat != NoteRepeatRate.OFF) {
+                    Text(
+                        text = config.noteRepeat.label,
+                        color = CowColors.AccentOrange,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Subtle top-right menu trigger button (in addition to Right-Click)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(3.dp)
+                .size(24.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { onOpenMenu() }
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreHoriz,
+                contentDescription = "Pad Options",
+                tint = CowColors.TextMuted,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 6.dp)
+        ) {
             DrumLineIcon(
                 instrument = instrument,
-                tint = if (isLit) CowColors.AccentOrange else CowColors.TextPrimary,
+                tint = if (isLit || isMidiLearning) CowColors.AccentOrange else CowColors.TextPrimary,
                 modifier = Modifier.size(34.dp)
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(5.dp))
             Text(
                 text = label,
-                color = if (isLit) CowColors.AccentOrange else CowColors.TextSecondary,
+                color = if (isLit || isMidiLearning) CowColors.AccentOrange else CowColors.TextSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    color = CowColors.AccentOrange,
+                    fontSize = 9.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
@@ -60,6 +61,7 @@ fun TransportBar(
     onTapTempo: () -> Unit,
     onSwingChange: (Float) -> Unit,
     onOpenKitPicker: () -> Unit,
+    onOpenMidiDialog: () -> Unit,
     onToggleMixer: () -> Unit,
     mixerOpen: Boolean,
     onExportWav: () -> Unit,
@@ -69,6 +71,7 @@ fun TransportBar(
 ) {
     var showBpmDialog by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val hasMidiConnected = state.midiDevices.any { it.connected }
 
     Surface(
         color = CowColors.SurfacePanel,
@@ -165,6 +168,15 @@ fun TransportBar(
                     )
                 }
 
+                IconButton(onClick = onOpenMidiDialog, modifier = Modifier.size(38.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Bluetooth,
+                        contentDescription = "Bluetooth & USB MIDI",
+                        tint = if (hasMidiConnected) CowColors.AccentOrange else CowColors.TextPrimary,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+
                 IconButton(onClick = onToggleMixer, modifier = Modifier.size(38.dp)) {
                     Icon(
                         imageVector = Icons.Default.Tune,
@@ -188,6 +200,13 @@ fun TransportBar(
                         onDismissRequest = { showOverflowMenu = false },
                         containerColor = CowColors.SurfaceElevated
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("Bluetooth & USB MIDI", color = CowColors.TextPrimary) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onOpenMidiDialog()
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("Load SoundFont (.sf2)", color = CowColors.TextPrimary) },
                             onClick = {

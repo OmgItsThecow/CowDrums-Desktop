@@ -32,6 +32,7 @@ class DrumAudioEngine(
         const val SAMPLE_RATE = BuiltInKitSynthesizer.SAMPLE_RATE
         private const val BUFFER_FRAMES = 512
         private const val MAX_VOICES = 32
+        private const val BASS_CHOKE_GROUP = 99
     }
 
     private data class Voice(
@@ -76,6 +77,9 @@ class DrumAudioEngine(
     private val kitSamples = AtomicReference<Map<DrumInstrument, FloatArray>>(
         BuiltInKitSynthesizer.renderKit(BuiltInKit.ACOUSTIC)
     )
+    private val padChokeGroups = AtomicReference<Map<DrumInstrument, Int>>(
+        DrumInstrument.ALL.associateWith { it.chokeGroup }
+    )
     private val bassSamples = AtomicReference<Map<Int, FloatArray>>(emptyMap())
     @Volatile
     private var bassVolume: Float = 0.80f
@@ -115,6 +119,16 @@ class DrumAudioEngine(
 
     fun setKitSamples(samples: Map<DrumInstrument, FloatArray>) {
         kitSamples.set(samples)
+    }
+
+    fun setSinglePadSample(instrument: DrumInstrument, sample: FloatArray) {
+        val updated = HashMap(kitSamples.get())
+        updated[instrument] = sample
+        kitSamples.set(updated)
+    }
+
+    fun setPadChokeGroups(groups: Map<DrumInstrument, Int>) {
+        padChokeGroups.set(groups)
     }
 
     fun currentKitSamples(): Map<DrumInstrument, FloatArray> = kitSamples.get()
@@ -393,7 +407,7 @@ class DrumAudioEngine(
         val samples = bassSamples.get()[midiNote] ?: return
         if (samples.size < 2) return
         for (v in voices) {
-            if (v.active && v.chokeGroup == 2) {
+            if (v.active && v.chokeGroup == BASS_CHOKE_GROUP) {
                 v.choking = true
             }
         }
@@ -403,7 +417,7 @@ class DrumAudioEngine(
             pitchRate = 1.0,
             gainL = gain,
             gainR = gain,
-            chokeGroup = 2
+            chokeGroup = BASS_CHOKE_GROUP
         )
     }
 
@@ -416,9 +430,10 @@ class DrumAudioEngine(
         val samples = kitSamples.get()[instrument] ?: return
         if (samples.size < 2) return
 
-        if (instrument.chokeGroup != 0) {
+        val activeChokeGroup = padChokeGroups.get()[instrument] ?: instrument.chokeGroup
+        if (activeChokeGroup != 0) {
             for (v in voices) {
-                if (v.active && v.chokeGroup == instrument.chokeGroup) {
+                if (v.active && v.chokeGroup == activeChokeGroup) {
                     v.choking = true
                 }
             }
@@ -435,7 +450,7 @@ class DrumAudioEngine(
             pitchRate = pitchRate,
             gainL = gainL,
             gainR = gainR,
-            chokeGroup = instrument.chokeGroup
+            chokeGroup = activeChokeGroup
         )
     }
 

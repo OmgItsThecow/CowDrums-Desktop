@@ -10,6 +10,85 @@ namespace CowPalette {
     const juce::Colour TextSecondary{0xffa0a8b0};
 }
 
+void CowDrumsEditor::PadComponent::configure(
+    const juce::String& titleText,
+    const juce::String& subText,
+    const juce::String& badgeText,
+    bool litState,
+    bool customState,
+    bool learningState
+) {
+    title = titleText;
+    subtitle = subText;
+    badge = badgeText;
+    isLit = litState;
+    isCustom = customState;
+    isLearning = learningState;
+}
+
+void CowDrumsEditor::PadComponent::paint(juce::Graphics& g) {
+    auto bounds = getLocalBounds().toFloat().reduced(0.5f);
+    juce::Colour bg = isLearning
+        ? CowPalette::Orange.withAlpha(0.32f)
+        : (isLit ? CowPalette::Orange.withAlpha(0.28f) : CowPalette::SurfaceCard);
+    juce::Colour border = (isLit || isLearning) ? CowPalette::Orange : CowPalette::BorderSubtle;
+
+    g.setColour(bg);
+    g.fillRoundedRectangle(bounds, 5.0f);
+    g.setColour(border);
+    g.drawRoundedRectangle(bounds, 5.0f, (isLit || isLearning) ? 1.6f : 1.0f);
+
+    // Top-left custom dot + repeat badge
+    float x = 7.0f;
+    if (isCustom) {
+        g.setColour(CowPalette::Orange);
+        g.fillEllipse(x, 7.0f, 6.0f, 6.0f);
+        x += 10.0f;
+    }
+    if (badge.isNotEmpty()) {
+        g.setColour(CowPalette::Orange);
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText(badge, static_cast<int>(x), 4, 48, 13, juce::Justification::centredLeft, false);
+    }
+
+    // Subtle top-right "..." menu cue
+    g.setColour(CowPalette::TextSecondary.withAlpha(0.65f));
+    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.drawText("...", getWidth() - 24, 2, 18, 14, juce::Justification::centredRight, false);
+
+    // Center label
+    g.setColour((isLit || isLearning) ? juce::Colours::white : CowPalette::TextPrimary);
+    g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+    int titleY = subtitle.isNotEmpty() ? (getHeight() / 2 - 14) : (getHeight() / 2 - 10);
+    g.drawText(title, 6, titleY, getWidth() - 12, 20, juce::Justification::centred, true);
+
+    if (subtitle.isNotEmpty()) {
+        g.setColour(CowPalette::Orange);
+        g.setFont(juce::FontOptions(10.0f));
+        g.drawText(subtitle, 6, titleY + 19, getWidth() - 12, 14, juce::Justification::centred, true);
+    }
+}
+
+void CowDrumsEditor::PadComponent::mouseDown(const juce::MouseEvent& e) {
+    // Top-right "..." corner click or right-click opens context menu
+    bool cornerClick = (e.x >= getWidth() - 24 && e.y <= 20);
+    if (e.mods.isPopupMenu() || cornerClick) {
+        if (onRightClick) onRightClick();
+        return;
+    }
+    heldLeft = true;
+    float relY = juce::jlimit(0.0f, 1.0f, static_cast<float>(e.y) / static_cast<float>(std::max(1, getHeight())));
+    float vel = 0.50f + relY * 0.50f;
+    if (onPadDown) onPadDown(vel);
+}
+
+void CowDrumsEditor::PadComponent::mouseUp(const juce::MouseEvent&) {
+    if (heldLeft) {
+        heldLeft = false;
+        if (onPadUp) onPadUp();
+    }
+}
+
 CowDrumsEditor::CowDrumsEditor(CowDrumsProcessor& p)
     : AudioProcessorEditor(&p), processor(p), midiDragHandle(p)
 {
@@ -105,14 +184,20 @@ CowDrumsEditor::CowDrumsEditor(CowDrumsProcessor& p)
     presetList.setColour(juce::ListBox::outlineColourId, CowPalette::BorderSubtle);
     presetList.setOutlineThickness(1);
 
-    // 12 Monochrome Drum Pads (4x3 grid matching SF Drum Machine)
+    // 12 Monochrome Drum Pads (4x3 grid; Right-Click or '...' opens Pad Context Menu)
     for (int i = 0; i < CowDrumsProcessor::NUM_INSTRUMENTS; ++i) {
-        addAndMakeVisible(padButtons[static_cast<size_t>(i)]);
-        padButtons[static_cast<size_t>(i)].setButtonText(CowDrumsProcessor::PAD_LABELS[static_cast<size_t>(i)]);
-        padButtons[static_cast<size_t>(i)].onClick = [this, i] {
-            processor.triggerPadManual(i, 0.92f);
+        auto& pad = padButtons[static_cast<size_t>(i)];
+        addAndMakeVisible(pad);
+        pad.onPadDown = [this, i](float vel) {
+            processor.setPadHeld(i, true, vel);
             padFlashTicks[static_cast<size_t>(i)] = 4;
             refreshButtonColors();
+        };
+        pad.onPadUp = [this, i] {
+            processor.setPadHeld(i, false, 0.0f);
+        };
+        pad.onRightClick = [this, i] {
+            showPadContextMenu(i);
         };
     }
 
@@ -177,6 +262,116 @@ CowDrumsEditor::CowDrumsEditor(CowDrumsProcessor& p)
 
 CowDrumsEditor::~CowDrumsEditor() {
     stopTimer();
+}
+
+void CowDrumsEditor::showPadContextMenu(int inst) {
+    PadConfigData cfg = processor.getPadConfig(inst);
+    bool isLearning = (processor.getMidiLearnPad() == inst);
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader(juce::String(CowDrumsProcessor::PAD_LABELS[static_cast<size_t>(inst)]) + " Pad — Sound & Sample");
+
+    // 1a. Change Sound (GM Note)
+    juce::PopupMenu gmMenu;
+    const auto& catalog = CowDrumsProcessor::getGmSoundCatalog();
+    for (const auto& s : catalog) {
+        bool tick = cfg.customWavName.isEmpty() && (cfg.soundGmNote == s.note);
+        gmMenu.addItem(1000 + s.note, juce::String(s.note) + " - " + s.name, true, tick);
+    }
+    menu.addSubMenu("Change Sound (GM Note)", gmMenu);
+
+    // 1b. Swap Sound From Another Kit
+    juce::PopupMenu kitMenu;
+    for (int k = 0; k < CowDrumsProcessor::NUM_KITS; ++k) {
+        bool tick = cfg.customWavName.isEmpty() && (cfg.kitOverride == k);
+        kitMenu.addItem(2000 + k, CowDrumsProcessor::BUILTIN_KITS[static_cast<size_t>(k)].name, true, tick);
+    }
+    menu.addSubMenu("Swap Sound From Kit", kitMenu);
+
+    // 1c. Load Custom WAV + Reset
+    menu.addItem(10, "Load Custom .WAV Sample...");
+    menu.addItem(11, "Reset Pad Sound to Kit Default");
+
+    menu.addSeparator();
+    menu.addSectionHeader("Performance & MIDI");
+
+    // 3a. Choke Group
+    juce::PopupMenu chokeMenu;
+    const char* chokeLabels[4] = {"None", "Group 1 (Hi-Hat)", "Group 2", "Group 3"};
+    for (int g = 0; g < 4; ++g) {
+        chokeMenu.addItem(3000 + g, chokeLabels[g], true, cfg.chokeGroup == g);
+    }
+    menu.addSubMenu("Choke Group", chokeMenu);
+
+    // 3b. MIDI Input Learn / Remap
+    menu.addItem(20, isLearning
+        ? "Cancel MIDI Learn"
+        : ("MIDI Learn (Current: Note " + juce::String(cfg.midiInputNote) + ")..."));
+    if (cfg.midiInputNote != CowDrumsProcessor::GM_NOTES[static_cast<size_t>(inst)]) {
+        menu.addItem(21, "Reset MIDI Note to Default (" + juce::String(CowDrumsProcessor::GM_NOTES[static_cast<size_t>(inst)]) + ")");
+    }
+
+    // 3c. Note Repeat / Roll
+    juce::PopupMenu repMenu;
+    const char* repLabels[5] = {"Off", "1/8 Notes", "1/16 Notes", "1/32 Notes", "1/16 Triplets"};
+    for (int r = 0; r < 5; ++r) {
+        repMenu.addItem(4000 + r, repLabels[r], true, cfg.noteRepeatMode == r);
+    }
+    menu.addSubMenu("Note Repeat / Roll (Hold Pad)", repMenu);
+
+    menu.addSeparator();
+    menu.addSectionHeader("Pattern Quick Actions (Active Slot)");
+
+    // 4. Pattern Quick Actions
+    menu.addItem(30, "Fill Every 4 Steps (1/4)");
+    menu.addItem(31, "Fill Every 2 Steps (1/8)");
+    menu.addItem(32, "Fill Every 8 Steps (1/2)");
+    menu.addItem(33, "Fill All Steps (1/16)");
+    menu.addItem(34, "Humanize Pad Velocity");
+    menu.addItem(35, "Clear Pad from Pattern");
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, inst, isLearning](int result) {
+        if (result == 0) return;
+        if (result >= 1000 && result < 1200) {
+            processor.setPadSoundGmNote(inst, result - 1000);
+        } else if (result >= 2000 && result < 2100) {
+            processor.setPadKitOverride(inst, result - 2000);
+        } else if (result == 10) {
+            fileChooser = std::make_unique<juce::FileChooser>("Select Custom Drum Sample (.wav)", juce::File{}, "*.wav");
+            fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                [this, inst](const juce::FileChooser& fc) {
+                    auto file = fc.getResult();
+                    if (file.existsAsFile()) {
+                        processor.loadCustomWavForPad(inst, file);
+                        refreshButtonColors();
+                    }
+                });
+        } else if (result == 11) {
+            processor.resetPadSound(inst);
+        } else if (result >= 3000 && result < 3010) {
+            processor.setPadChokeGroup(inst, result - 3000);
+        } else if (result == 20) {
+            if (isLearning) processor.cancelMidiLearn();
+            else processor.startMidiLearn(inst);
+        } else if (result == 21) {
+            processor.setPadMidiInputNote(inst, CowDrumsProcessor::GM_NOTES[static_cast<size_t>(inst)]);
+        } else if (result >= 4000 && result < 4010) {
+            processor.setPadNoteRepeat(inst, result - 4000);
+        } else if (result == 30) {
+            processor.fillPadEveryNSteps(inst, 4);
+        } else if (result == 31) {
+            processor.fillPadEveryNSteps(inst, 2);
+        } else if (result == 32) {
+            processor.fillPadEveryNSteps(inst, 8);
+        } else if (result == 33) {
+            processor.fillPadEveryNSteps(inst, 1);
+        } else if (result == 34) {
+            processor.humanizePadInActiveSlot(inst);
+        } else if (result == 35) {
+            processor.clearPadInActiveSlot(inst);
+        }
+        refreshButtonColors();
+    });
 }
 
 void CowDrumsEditor::MidiDragHandle::paint(juce::Graphics& g) {
@@ -315,16 +510,38 @@ void CowDrumsEditor::refreshButtonColors() {
     gainLabel.setText("VOL " + juce::String(static_cast<int>(processor.getMasterGain() * 100.0f)) + "%",
                       juce::dontSendNotification);
 
+    int learnPad = processor.getMidiLearnPad();
+    const char* repBadges[5] = {"", "1/8", "1/16", "1/32", "1/16T"};
+
     for (int i = 0; i < CowDrumsProcessor::NUM_INSTRUMENTS; ++i) {
         bool lit = padFlashTicks[static_cast<size_t>(i)] > 0;
-        padButtons[static_cast<size_t>(i)].setColour(
-            juce::TextButton::buttonColourId,
-            lit ? CowPalette::Orange : CowPalette::SurfaceCard
+        PadConfigData cfg = processor.getPadConfig(i);
+        bool learning = (learnPad == i);
+        bool isCustom = cfg.customWavName.isNotEmpty()
+            || cfg.kitOverride >= 0
+            || (cfg.soundGmNote != CowDrumsProcessor::GM_NOTES[static_cast<size_t>(i)]);
+
+        juce::String sub;
+        if (learning) {
+            sub = "MIDI LEARN...";
+        } else if (cfg.customWavName.isNotEmpty()) {
+            sub = cfg.customWavName;
+        } else if (cfg.kitOverride >= 0 && cfg.kitOverride < CowDrumsProcessor::NUM_KITS) {
+            sub = CowDrumsProcessor::BUILTIN_KITS[static_cast<size_t>(cfg.kitOverride)].name;
+        } else if (cfg.soundGmNote != CowDrumsProcessor::GM_NOTES[static_cast<size_t>(i)]) {
+            sub = "GM " + juce::String(cfg.soundGmNote);
+        }
+
+        juce::String badge = repBadges[juce::jlimit(0, 4, cfg.noteRepeatMode)];
+        padButtons[static_cast<size_t>(i)].configure(
+            CowDrumsProcessor::PAD_LABELS[static_cast<size_t>(i)],
+            sub,
+            badge,
+            lit,
+            isCustom,
+            learning
         );
-        padButtons[static_cast<size_t>(i)].setColour(
-            juce::TextButton::textColourOffId,
-            lit ? juce::Colours::white : CowPalette::TextPrimary
-        );
+        padButtons[static_cast<size_t>(i)].repaint();
     }
 }
 
@@ -364,6 +581,12 @@ void CowDrumsEditor::paint(juce::Graphics& g) {
         g.setColour(active ? CowPalette::Orange : ((s % 4 == 0) ? CowPalette::SurfaceElevated : CowPalette::SurfaceCard));
         g.fillRoundedRectangle(stripX + s * cellW + 1.0f, static_cast<float>(stripY), cellW - 3.0f, 10.0f, 2.0f);
     }
+
+    // Subtle hint below pads
+    g.setColour(CowPalette::TextSecondary.withAlpha(0.7f));
+    g.setFont(juce::FontOptions(10.5f));
+    g.drawText("Right-click any pad (or '...') to change sound, swap kit, load WAV, MIDI Learn, choke, or fill",
+               stripX, getHeight() - 122, stripW, 14, juce::Justification::centredLeft, true);
 }
 
 void CowDrumsEditor::resized() {
@@ -400,7 +623,7 @@ void CowDrumsEditor::resized() {
     int padAreaX = leftColW + 24;
     int padAreaY = 86;
     int padAreaW = w - padAreaX - 14;
-    int padAreaH = std::max(140, h - padAreaY - 120);
+    int padAreaH = std::max(130, h - padAreaY - 134);
     int cols = 4;
     int rows = 3;
     int gap = 6;
@@ -440,4 +663,3 @@ void CowDrumsEditor::resized() {
     gainLabel.setBounds(rightX, sliderY, 72, 26);
     gainSlider.setBounds(rightX + 72, sliderY, std::max(40, halfW - 72), 26);
 }
-

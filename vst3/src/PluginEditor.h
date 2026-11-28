@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include <functional>
 
 class CowDrumsEditor : public juce::AudioProcessorEditor,
                        private juce::Timer,
@@ -15,7 +16,7 @@ public:
 private:
     void timerCallback() override;
 
-    // ListBoxModel for 95-preset list
+    // ListBoxModel for 100-preset list
     int getNumRows() override;
     void paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected) override;
     void listBoxItemClicked(int row, const juce::MouseEvent&) override;
@@ -24,6 +25,7 @@ private:
     void rebuildSubcategoryFilters();
     void rebuildFilteredPresets();
     void refreshButtonColors();
+    void showPadContextMenu(int inst);
 
     CowDrumsProcessor& processor;
 
@@ -43,8 +45,36 @@ private:
     juce::ListBox presetList;
     std::vector<int> filteredPresetIndices;
 
-    // Right Pads & Live Controls
-    std::array<juce::TextButton, CowDrumsProcessor::NUM_INSTRUMENTS> padButtons;
+    // Custom Pad Component supporting left-click hold (velocity + note repeat) & right-click context menu
+    class PadComponent : public juce::Component {
+    public:
+        void configure(
+            const juce::String& titleText,
+            const juce::String& subText,
+            const juce::String& badgeText,
+            bool litState,
+            bool customState,
+            bool learningState
+        );
+        void paint(juce::Graphics& g) override;
+        void mouseDown(const juce::MouseEvent& e) override;
+        void mouseUp(const juce::MouseEvent& e) override;
+
+        std::function<void(float)> onPadDown;
+        std::function<void()> onPadUp;
+        std::function<void()> onRightClick;
+
+    private:
+        juce::String title;
+        juce::String subtitle;
+        juce::String badge;
+        bool isLit = false;
+        bool isCustom = false;
+        bool isLearning = false;
+        bool heldLeft = false;
+    };
+
+    std::array<PadComponent, CowDrumsProcessor::NUM_INSTRUMENTS> padButtons;
     std::array<int, CowDrumsProcessor::NUM_INSTRUMENTS> padFlashTicks{};
 
     class MidiDragHandle : public juce::Component {

@@ -34,10 +34,36 @@ const std::array<KitInfo, CowDrumsProcessor::NUM_KITS> CowDrumsProcessor::BUILTI
     {"60. BOOM-BAP MPC", 60}
 }};
 
+const std::vector<GmSoundInfo>& CowDrumsProcessor::getGmSoundCatalog() {
+    static const std::vector<GmSoundInfo> catalog = {
+        {35, "Acoustic Bass Drum"}, {36, "Bass Drum 1"}, {37, "Side Stick / Rimshot"},
+        {38, "Acoustic Snare"}, {39, "Hand Clap"}, {40, "Electric Snare"},
+        {41, "Low Floor Tom"}, {42, "Closed Hi-Hat"}, {43, "High Floor Tom"},
+        {44, "Pedal Hi-Hat"}, {45, "Low Tom"}, {46, "Open Hi-Hat"},
+        {47, "Low-Mid Tom"}, {48, "Hi-Mid Tom"}, {49, "Crash Cymbal 1"},
+        {50, "High Tom"}, {51, "Ride Cymbal 1"}, {52, "Chinese Cymbal"},
+        {53, "Ride Bell"}, {54, "Tambourine"}, {55, "Splash Cymbal"},
+        {56, "Cowbell"}, {57, "Crash Cymbal 2"}, {59, "Ride Cymbal 2"},
+        {60, "Hi Bongo"}, {61, "Low Bongo"}, {62, "Mute Hi Conga"},
+        {63, "Open Hi Conga"}, {64, "Low Conga"}, {65, "High Timbale"},
+        {66, "Low Timbale"}, {69, "Cabasa"}, {70, "Maracas"},
+        {75, "Claves"}, {81, "Open Triangle"}
+    };
+    return catalog;
+}
+
 CowDrumsProcessor::CowDrumsProcessor()
     : AudioProcessor(BusesProperties()
           .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
+    for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
+        padConfigs[static_cast<size_t>(i)].soundGmNote = GM_NOTES[static_cast<size_t>(i)];
+        padConfigs[static_cast<size_t>(i)].midiInputNote = GM_NOTES[static_cast<size_t>(i)];
+        padConfigs[static_cast<size_t>(i)].chokeGroup = (i == 4 || i == 5) ? 1 : 0; // CHH / OHH
+        padConfigs[static_cast<size_t>(i)].kitOverride = -1;
+        padConfigs[static_cast<size_t>(i)].noteRepeatMode = 0;
+    }
+
     loadPresetsFromBinary();
     initBundledSoundFont();
     if (!presets.empty()) {
@@ -50,6 +76,36 @@ CowDrumsProcessor::~CowDrumsProcessor() {
     if (soundFont != nullptr) {
         tsf_close(soundFont);
         soundFont = nullptr;
+    }
+}
+
+void CowDrumsProcessor::syncSingleChannelPresetLocked(int inst) {
+    if (soundFont == nullptr || inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    int kitIdx = padConfigs[static_cast<size_t>(inst)].kitOverride;
+    if (kitIdx < 0 || kitIdx >= NUM_KITS) kitIdx = activeKitIdx.load();
+    int presetNum = BUILTIN_KITS[static_cast<size_t>(kitIdx)].sf2Preset;
+    if (tsf_get_presetindex(soundFont, 128, presetNum) >= 0) {
+        tsf_channel_set_bank_preset(soundFont, inst, 128, presetNum);
+    } else if (tsf_get_presetindex(soundFont, 128, 0) >= 0) {
+        tsf_channel_set_bank_preset(soundFont, inst, 128, 0);
+    } else {
+        tsf_channel_set_presetindex(soundFont, inst, 0);
+    }
+}
+
+void CowDrumsProcessor::syncAllChannelPresetsLocked() {
+    if (soundFont == nullptr) return;
+    for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
+        syncSingleChannelPresetLocked(i);
+    }
+    // Channel 12: active kit for raw/unmapped GM MIDI drum notes
+    int presetNum = BUILTIN_KITS[static_cast<size_t>(activeKitIdx.load())].sf2Preset;
+    if (tsf_get_presetindex(soundFont, 128, presetNum) >= 0) {
+        tsf_channel_set_bank_preset(soundFont, 12, 128, presetNum);
+    } else if (tsf_get_presetindex(soundFont, 128, 0) >= 0) {
+        tsf_channel_set_bank_preset(soundFont, 12, 128, 0);
+    } else {
+        tsf_channel_set_presetindex(soundFont, 12, 0);
     }
 }
 
@@ -66,8 +122,7 @@ void CowDrumsProcessor::initBundledSoundFont() {
     if (soundFont != nullptr) {
         tsf_set_output(soundFont, TSF_STEREO_INTERLEAVED, static_cast<int>(currentSampleRate), 0.0f);
         tsf_set_max_voices(soundFont, 64);
-        int presetNum = BUILTIN_KITS[static_cast<size_t>(activeKitIdx.load())].sf2Preset;
-        tsf_channel_set_bank_preset(soundFont, 9, 128, presetNum);
+        syncAllChannelPresetsLocked();
     }
     customSf2Name = "Default (GeneralUser GS)";
 }
@@ -82,14 +137,7 @@ bool CowDrumsProcessor::loadExternalSoundFont(const juce::File& file) {
     soundFont = loaded;
     tsf_set_output(soundFont, TSF_STEREO_INTERLEAVED, static_cast<int>(currentSampleRate), 0.0f);
     tsf_set_max_voices(soundFont, 64);
-    int presetNum = BUILTIN_KITS[static_cast<size_t>(activeKitIdx.load())].sf2Preset;
-    if (tsf_get_presetindex(soundFont, 128, presetNum) >= 0) {
-        tsf_channel_set_bank_preset(soundFont, 9, 128, presetNum);
-    } else if (tsf_get_presetindex(soundFont, 128, 0) >= 0) {
-        tsf_channel_set_bank_preset(soundFont, 9, 128, 0);
-    } else {
-        tsf_channel_set_presetindex(soundFont, 9, 0);
-    }
+    syncAllChannelPresetsLocked();
     customSf2Name = file.getFileNameWithoutExtension();
     return true;
 }
@@ -130,14 +178,14 @@ void CowDrumsProcessor::selectKit(int kitIndex) {
     int safeKit = juce::jlimit(0, NUM_KITS - 1, kitIndex);
     activeKitIdx.store(safeKit);
     std::lock_guard<std::mutex> lock(synthMutex);
-    if (soundFont != nullptr) {
-        int presetNum = BUILTIN_KITS[static_cast<size_t>(safeKit)].sf2Preset;
-        if (tsf_get_presetindex(soundFont, 128, presetNum) >= 0) {
-            tsf_channel_set_bank_preset(soundFont, 9, 128, presetNum);
-        } else if (tsf_get_presetindex(soundFont, 128, 0) >= 0) {
-            tsf_channel_set_bank_preset(soundFont, 9, 128, 0);
-        }
+    // Clear per-pad sound overrides when user selects a whole new kit
+    for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
+        padConfigs[static_cast<size_t>(i)].kitOverride = -1;
+        padConfigs[static_cast<size_t>(i)].soundGmNote = GM_NOTES[static_cast<size_t>(i)];
+        padConfigs[static_cast<size_t>(i)].customWavName.clear();
+        padCustomWavs[static_cast<size_t>(i)].clear();
     }
+    syncAllChannelPresetsLocked();
 }
 
 void CowDrumsProcessor::setSlot(int slot) {
@@ -169,7 +217,198 @@ void CowDrumsProcessor::triggerPadManual(int instrumentIndex, float velocity) {
     if (instrumentIndex < 0 || instrumentIndex >= NUM_INSTRUMENTS) return;
     padFlashMask.fetch_or(1u << static_cast<uint32_t>(instrumentIndex));
     std::lock_guard<std::mutex> lock(synthMutex);
-    triggerNoteLocked(GM_NOTES[static_cast<size_t>(instrumentIndex)], velocity);
+    triggerInstrumentLocked(instrumentIndex, velocity);
+}
+
+void CowDrumsProcessor::setPadHeld(int instrumentIndex, bool held, float velocity) {
+    if (instrumentIndex < 0 || instrumentIndex >= NUM_INSTRUMENTS) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padHeld[static_cast<size_t>(instrumentIndex)] = held;
+    padHeldVel[static_cast<size_t>(instrumentIndex)] = velocity;
+    if (held) {
+        triggerInstrumentLocked(instrumentIndex, velocity);
+        padFlashMask.fetch_or(1u << static_cast<uint32_t>(instrumentIndex));
+        int mode = padConfigs[static_cast<size_t>(instrumentIndex)].noteRepeatMode;
+        if (mode > 0) {
+            double divisor = (mode == 1) ? 2.0 : (mode == 2 ? 4.0 : (mode == 3 ? 8.0 : 6.0));
+            double bpm = juce::jlimit(40.0, 240.0, static_cast<double>(effectiveBpm.load()));
+            padRepeatCountdown[static_cast<size_t>(instrumentIndex)] = (60.0 / bpm / divisor) * currentSampleRate;
+        }
+    } else {
+        padRepeatCountdown[static_cast<size_t>(instrumentIndex)] = 0.0;
+    }
+}
+
+// ==================== PAD CONTEXT MENU API (1, 3, 4) ====================
+
+PadConfigData CowDrumsProcessor::getPadConfig(int inst) {
+    std::lock_guard<std::mutex> lock(synthMutex);
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return {};
+    return padConfigs[static_cast<size_t>(inst)];
+}
+
+void CowDrumsProcessor::setPadSoundGmNote(int inst, int gmNote) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padConfigs[static_cast<size_t>(inst)].soundGmNote = juce::jlimit(0, 127, gmNote);
+    padConfigs[static_cast<size_t>(inst)].customWavName.clear();
+    padCustomWavs[static_cast<size_t>(inst)].clear();
+    triggerInstrumentLocked(inst, 0.92f);
+    padFlashMask.fetch_or(1u << static_cast<uint32_t>(inst));
+}
+
+void CowDrumsProcessor::setPadKitOverride(int inst, int kitIdx) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padConfigs[static_cast<size_t>(inst)].kitOverride = juce::jlimit(-1, NUM_KITS - 1, kitIdx);
+    padConfigs[static_cast<size_t>(inst)].customWavName.clear();
+    padCustomWavs[static_cast<size_t>(inst)].clear();
+    syncSingleChannelPresetLocked(inst);
+    triggerInstrumentLocked(inst, 0.92f);
+    padFlashMask.fetch_or(1u << static_cast<uint32_t>(inst));
+}
+
+bool CowDrumsProcessor::loadCustomWavForPad(int inst, const juce::File& file) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS || !file.existsAsFile()) return false;
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(fm.createReaderFor(file));
+    if (reader == nullptr || reader->lengthInSamples <= 0) return false;
+
+    const int maxInSamples = static_cast<int>(std::min<juce::int64>(reader->lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 4.0)));
+    juce::AudioBuffer<float> tmp(static_cast<int>(reader->numChannels), maxInSamples);
+    reader->read(&tmp, 0, maxInSamples, 0, true, true);
+
+    std::vector<float> mono(static_cast<size_t>(maxInSamples), 0.0f);
+    for (int ch = 0; ch < tmp.getNumChannels(); ++ch) {
+        const float* src = tmp.getReadPointer(ch);
+        for (int s = 0; s < maxInSamples; ++s) {
+            mono[static_cast<size_t>(s)] += src[s] / static_cast<float>(tmp.getNumChannels());
+        }
+    }
+
+    // Resample linearly to currentSampleRate if needed
+    std::vector<float> finalPcm;
+    double ratio = reader->sampleRate / (currentSampleRate > 8000.0 ? currentSampleRate : 44100.0);
+    if (std::abs(ratio - 1.0) > 1e-3) {
+        size_t outLen = std::max<size_t>(32, static_cast<size_t>(mono.size() / ratio));
+        finalPcm.resize(outLen);
+        for (size_t i = 0; i < outLen; ++i) {
+            double pos = static_cast<double>(i) * ratio;
+            size_t idx = std::min(mono.size() - 1, static_cast<size_t>(pos));
+            size_t next = std::min(mono.size() - 1, idx + 1);
+            float frac = static_cast<float>(pos - static_cast<double>(idx));
+            finalPcm[i] = mono[idx] * (1.0f - frac) + mono[next] * frac;
+        }
+    } else {
+        finalPcm = std::move(mono);
+    }
+
+    // Normalize
+    float peak = 0.0f;
+    for (float v : finalPcm) peak = std::max(peak, std::fabs(v));
+    if (peak < 1e-5f) return false;
+    float norm = 0.92f / peak;
+    for (float& v : finalPcm) v *= norm;
+
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padCustomWavs[static_cast<size_t>(inst)] = std::move(finalPcm);
+    padConfigs[static_cast<size_t>(inst)].customWavName = file.getFileNameWithoutExtension();
+    padConfigs[static_cast<size_t>(inst)].kitOverride = -1;
+    triggerInstrumentLocked(inst, 0.92f);
+    padFlashMask.fetch_or(1u << static_cast<uint32_t>(inst));
+    return true;
+}
+
+void CowDrumsProcessor::resetPadSound(int inst) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padConfigs[static_cast<size_t>(inst)].soundGmNote = GM_NOTES[static_cast<size_t>(inst)];
+    padConfigs[static_cast<size_t>(inst)].kitOverride = -1;
+    padConfigs[static_cast<size_t>(inst)].customWavName.clear();
+    padCustomWavs[static_cast<size_t>(inst)].clear();
+    syncSingleChannelPresetLocked(inst);
+    triggerInstrumentLocked(inst, 0.90f);
+    padFlashMask.fetch_or(1u << static_cast<uint32_t>(inst));
+}
+
+void CowDrumsProcessor::setPadChokeGroup(int inst, int group) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padConfigs[static_cast<size_t>(inst)].chokeGroup = juce::jlimit(0, 3, group);
+}
+
+void CowDrumsProcessor::startMidiLearn(int inst) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    midiLearnPad.store(inst);
+}
+
+void CowDrumsProcessor::cancelMidiLearn() {
+    midiLearnPad.store(-1);
+}
+
+void CowDrumsProcessor::setPadMidiInputNote(int inst, int midiNote) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padConfigs[static_cast<size_t>(inst)].midiInputNote = juce::jlimit(0, 127, midiNote);
+    if (midiLearnPad.load() == inst) midiLearnPad.store(-1);
+}
+
+void CowDrumsProcessor::setPadNoteRepeat(int inst, int mode) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    padConfigs[static_cast<size_t>(inst)].noteRepeatMode = juce::jlimit(0, 4, mode);
+}
+
+void CowDrumsProcessor::clearPadInActiveSlot(int inst) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS || presets.empty()) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    int pIdx = juce::jlimit(0, static_cast<int>(presets.size()) - 1, activePresetIdx.load());
+    int slot = playingSlot.load();
+    auto& preset = presets[static_cast<size_t>(pIdx)];
+    auto& pat = (slot == 0) ? preset.mainA : (slot == 1 ? preset.varB : preset.fill);
+    pat.grid[static_cast<size_t>(inst)].fill(0);
+}
+
+void CowDrumsProcessor::fillPadEveryNSteps(int inst, int everyN) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS || presets.empty()) return;
+    int stride = std::max(1, everyN);
+    std::lock_guard<std::mutex> lock(synthMutex);
+    int pIdx = juce::jlimit(0, static_cast<int>(presets.size()) - 1, activePresetIdx.load());
+    int slot = playingSlot.load();
+    auto& preset = presets[static_cast<size_t>(pIdx)];
+    auto& pat = (slot == 0) ? preset.mainA : (slot == 1 ? preset.varB : preset.fill);
+    int stepCount = std::max(1, pat.stepCount);
+    for (int s = 0; s < stepCount; ++s) {
+        if (s % stride == 0) {
+            pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(s)] = (s % 4 == 0) ? 3 : 2;
+        } else {
+            pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(s)] = 0;
+        }
+    }
+}
+
+void CowDrumsProcessor::humanizePadInActiveSlot(int inst) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS || presets.empty()) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    int pIdx = juce::jlimit(0, static_cast<int>(presets.size()) - 1, activePresetIdx.load());
+    int slot = playingSlot.load();
+    auto& preset = presets[static_cast<size_t>(pIdx)];
+    auto& pat = (slot == 0) ? preset.mainA : (slot == 1 ? preset.varB : preset.fill);
+    int stepCount = std::max(1, pat.stepCount);
+    for (int s = 0; s < stepCount; ++s) {
+        int& v = pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(s)];
+        if (v <= 0) continue;
+        humanizeSeed ^= humanizeSeed << 13;
+        humanizeSeed ^= humanizeSeed >> 17;
+        humanizeSeed ^= humanizeSeed << 5;
+        uint32_t r = humanizeSeed % 100u;
+        if (s % 4 == 0) {
+            v = (r < 72u) ? 3 : 2;
+        } else {
+            v = (r < 35u) ? 1 : ((r < 85u) ? 2 : 3);
+        }
+    }
 }
 
 int CowDrumsProcessor::getCurrentStepCount() const {
@@ -206,7 +445,7 @@ juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile() {
                 int velLevel = pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(s)];
                 if (velLevel <= 0) continue;
                 juce::uint8 vel = (velLevel == 1) ? 52 : (velLevel == 2 ? 94 : 124);
-                int note = GM_NOTES[static_cast<size_t>(inst)];
+                int note = padConfigs[static_cast<size_t>(inst)].midiInputNote;
                 // MIDI Channel 10 (1-indexed in JUCE) = GM Drums
                 seq.addEvent(juce::MidiMessage::noteOn(10, note, vel), tickCursor);
                 seq.addEvent(juce::MidiMessage::noteOff(10, note), tickCursor + 40.0);
@@ -249,13 +488,62 @@ juce::File CowDrumsProcessor::exportActivePatternToTempMidiFile() {
     return outFile;
 }
 
-void CowDrumsProcessor::triggerNoteLocked(int midiNote, float velocity) {
-    if (soundFont == nullptr) return;
-    // Closed HH (42) cleanly chokes Open HH (46)
-    if (midiNote == 42) {
-        tsf_channel_note_off(soundFont, 9, 46);
+void CowDrumsProcessor::triggerInstrumentLocked(int inst, float velocity) {
+    if (inst < 0 || inst >= NUM_INSTRUMENTS) return;
+    const auto& cfg = padConfigs[static_cast<size_t>(inst)];
+    float vel = juce::jlimit(0.05f, 1.0f, velocity);
+
+    // Choke all instruments sharing the same non-zero choke group
+    if (cfg.chokeGroup > 0) {
+        if (soundFont != nullptr) {
+            for (int other = 0; other < NUM_INSTRUMENTS; ++other) {
+                if (padConfigs[static_cast<size_t>(other)].chokeGroup == cfg.chokeGroup) {
+                    tsf_channel_note_off_all(soundFont, other);
+                }
+            }
+        }
+        for (auto& v : wavVoices) {
+            if (v.active && v.chokeGroup == cfg.chokeGroup) {
+                v.active = false;
+            }
+        }
     }
-    tsf_channel_note_on(soundFont, 9, midiNote, juce::jlimit(0.05f, 1.0f, velocity));
+
+    // Play custom WAV if loaded on this pad
+    const auto& wav = padCustomWavs[static_cast<size_t>(inst)];
+    if (!wav.empty()) {
+        WavVoice* target = nullptr;
+        for (size_t i = 0; i < wavVoices.size(); ++i) {
+            size_t idx = (static_cast<size_t>(wavVoiceCursor) + i) % wavVoices.size();
+            if (!wavVoices[idx].active) {
+                target = &wavVoices[idx];
+                wavVoiceCursor = static_cast<int>((idx + 1) % wavVoices.size());
+                break;
+            }
+        }
+        if (target == nullptr) {
+            target = &wavVoices[static_cast<size_t>(wavVoiceCursor)];
+            wavVoiceCursor = (wavVoiceCursor + 1) % static_cast<int>(wavVoices.size());
+        }
+        target->active = true;
+        target->inst = inst;
+        target->pos = 0;
+        target->gain = vel;
+        target->chokeGroup = cfg.chokeGroup;
+        return;
+    }
+
+    if (soundFont != nullptr) {
+        tsf_channel_note_on(soundFont, inst, cfg.soundGmNote, vel);
+    }
+}
+
+void CowDrumsProcessor::triggerRawNoteLocked(int midiNote, float velocity) {
+    if (soundFont == nullptr) return;
+    if (midiNote == 42) {
+        tsf_channel_note_off(soundFont, 12, 46);
+    }
+    tsf_channel_note_on(soundFont, 12, midiNote, juce::jlimit(0.05f, 1.0f, velocity));
 }
 
 void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
@@ -279,17 +567,33 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
 
     std::lock_guard<std::mutex> lock(synthMutex);
 
-    // Handle incoming DAW / MIDI pad controller notes (always playable on top of patterns)
+    // Handle incoming DAW / Bluetooth / USB MIDI controller notes
     for (const auto metadata : midiMessages) {
         const auto msg = metadata.getMessage();
         if (msg.isNoteOn()) {
             int note = msg.getNoteNumber();
-            triggerNoteLocked(note, msg.getFloatVelocity());
+            float vel = msg.getFloatVelocity();
+
+            // Check MIDI Learn first
+            int learnIdx = midiLearnPad.load();
+            if (learnIdx >= 0 && learnIdx < NUM_INSTRUMENTS) {
+                padConfigs[static_cast<size_t>(learnIdx)].midiInputNote = note;
+                midiLearnPad.store(-1);
+                triggerInstrumentLocked(learnIdx, vel);
+                padFlashMask.fetch_or(1u << static_cast<uint32_t>(learnIdx));
+                continue;
+            }
+
+            bool matched = false;
             for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
-                if (GM_NOTES[static_cast<size_t>(i)] == note) {
+                if (padConfigs[static_cast<size_t>(i)].midiInputNote == note) {
+                    triggerInstrumentLocked(i, vel);
                     padFlashMask.fetch_or(1u << static_cast<uint32_t>(i));
-                    break;
+                    matched = true;
                 }
+            }
+            if (!matched) {
+                triggerRawNoteLocked(note, vel);
             }
         }
     }
@@ -310,9 +614,7 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     }
     wasPlaying = playNow;
 
-    if (soundFont == nullptr) return;
-
-    // Render in small 64-sample sub-blocks so step triggers are sample-tight (<1.5ms)
+    // Render in small 64-sample sub-blocks so step triggers & note repeat are sample-tight (<1.5ms)
     const int chunkSize = 64;
     float interleaved[chunkSize * 2];
     float* outL = buffer.getWritePointer(0);
@@ -323,6 +625,21 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     int offset = 0;
     while (offset < numSamples) {
         int todo = std::min(chunkSize, numSamples - offset);
+
+        // Process hold-to-repeat pads
+        for (int inst = 0; inst < NUM_INSTRUMENTS; ++inst) {
+            int mode = padConfigs[static_cast<size_t>(inst)].noteRepeatMode;
+            if (padHeld[static_cast<size_t>(inst)] && mode > 0) {
+                padRepeatCountdown[static_cast<size_t>(inst)] -= static_cast<double>(todo);
+                if (padRepeatCountdown[static_cast<size_t>(inst)] <= 0.0) {
+                    triggerInstrumentLocked(inst, padHeldVel[static_cast<size_t>(inst)]);
+                    padFlashMask.fetch_or(1u << static_cast<uint32_t>(inst));
+                    double divisor = (mode == 1) ? 2.0 : (mode == 2 ? 4.0 : (mode == 3 ? 8.0 : 6.0));
+                    double interval = (60.0 / juce::jlimit(40.0, 240.0, bpmNow) / divisor) * currentSampleRate;
+                    padRepeatCountdown[static_cast<size_t>(inst)] += std::max(512.0, interval);
+                }
+            }
+        }
 
         if (playNow && !presets.empty()) {
             samplesUntilNextStep -= static_cast<double>(todo);
@@ -345,12 +662,11 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
                     int velLevel = pat.grid[static_cast<size_t>(inst)][static_cast<size_t>(safeStep)];
                     if (velLevel > 0) {
                         float baseV = (velLevel == 1) ? 0.38f : (velLevel == 2 ? 0.74f : 1.0f);
-                        // Subtle +-5% drummer humanization
                         humanizeSeed ^= humanizeSeed << 13;
                         humanizeSeed ^= humanizeSeed >> 17;
                         humanizeSeed ^= humanizeSeed << 5;
                         float h = (((humanizeSeed & 0xFFFFu) / 65535.0f) * 2.0f - 1.0f) * 0.05f;
-                        triggerNoteLocked(GM_NOTES[static_cast<size_t>(inst)], baseV * (1.0f + h));
+                        triggerInstrumentLocked(inst, baseV * (1.0f + h));
                         padFlashMask.fetch_or(1u << static_cast<uint32_t>(inst));
                     }
                 }
@@ -373,7 +689,28 @@ void CowDrumsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
             }
         }
 
-        tsf_render_float(soundFont, interleaved, todo, 0);
+        if (soundFont != nullptr) {
+            tsf_render_float(soundFont, interleaved, todo, 0);
+        } else {
+            std::fill_n(interleaved, todo * 2, 0.0f);
+        }
+
+        // Mix any active custom WAV voices
+        for (auto& v : wavVoices) {
+            if (!v.active || v.inst < 0 || v.inst >= NUM_INSTRUMENTS) continue;
+            const auto& pcm = padCustomWavs[static_cast<size_t>(v.inst)];
+            if (pcm.empty()) { v.active = false; continue; }
+            for (int i = 0; i < todo; ++i) {
+                if (v.pos >= pcm.size()) {
+                    v.active = false;
+                    break;
+                }
+                float s = pcm[v.pos++] * v.gain;
+                interleaved[i * 2] += s;
+                interleaved[i * 2 + 1] += s;
+            }
+        }
+
         for (int i = 0; i < todo; ++i) {
             float l = std::tanh(interleaved[i * 2] * gain);
             float r = std::tanh(interleaved[i * 2 + 1] * gain);
@@ -394,6 +731,23 @@ void CowDrumsProcessor::getStateInformation(juce::MemoryBlock& destData) {
     obj->setProperty("internalBpm", internalBpm.load());
     obj->setProperty("swing", swingAmount.load());
     obj->setProperty("masterGain", masterGain.load());
+
+    juce::Array<juce::var> padArr;
+    {
+        std::lock_guard<std::mutex> lock(synthMutex);
+        for (int i = 0; i < NUM_INSTRUMENTS; ++i) {
+            const auto& c = padConfigs[static_cast<size_t>(i)];
+            juce::DynamicObject::Ptr po = new juce::DynamicObject();
+            po->setProperty("gm", c.soundGmNote);
+            po->setProperty("kit", c.kitOverride);
+            po->setProperty("choke", c.chokeGroup);
+            po->setProperty("midi", c.midiInputNote);
+            po->setProperty("rep", c.noteRepeatMode);
+            padArr.add(juce::var(po.get()));
+        }
+    }
+    obj->setProperty("padConfigs", padArr);
+
     juce::String json = juce::JSON::toString(juce::var(obj.get()));
     destData.replaceAll(json.toRawUTF8(), json.getNumBytesAsUTF8());
 }
@@ -411,6 +765,23 @@ void CowDrumsProcessor::setStateInformation(const void* data, int sizeInBytes) {
         setInternalBpm(static_cast<float>(obj->getProperty("internalBpm")));
         setSwing(static_cast<float>(obj->getProperty("swing")));
         setMasterGain(static_cast<float>(obj->getProperty("masterGain")));
+
+        auto padVar = obj->getProperty("padConfigs");
+        if (auto* arr = padVar.getArray()) {
+            std::lock_guard<std::mutex> lock(synthMutex);
+            int n = std::min(NUM_INSTRUMENTS, arr->size());
+            for (int i = 0; i < n; ++i) {
+                if (auto* po = (*arr)[i].getDynamicObject()) {
+                    auto& c = padConfigs[static_cast<size_t>(i)];
+                    c.soundGmNote = juce::jlimit(0, 127, static_cast<int>(po->getProperty("gm")));
+                    c.kitOverride = juce::jlimit(-1, NUM_KITS - 1, static_cast<int>(po->getProperty("kit")));
+                    c.chokeGroup = juce::jlimit(0, 3, static_cast<int>(po->getProperty("choke")));
+                    c.midiInputNote = juce::jlimit(0, 127, static_cast<int>(po->getProperty("midi")));
+                    c.noteRepeatMode = juce::jlimit(0, 4, static_cast<int>(po->getProperty("rep")));
+                }
+            }
+            syncAllChannelPresetsLocked();
+        }
     }
 }
 

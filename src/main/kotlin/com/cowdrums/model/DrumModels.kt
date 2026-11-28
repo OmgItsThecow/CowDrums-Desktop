@@ -379,3 +379,88 @@ data class SongSection(
     val bars: Int = 4,
     val playFillOnLastBar: Boolean = true
 )
+
+@Serializable
+enum class NoteRepeatRate(val label: String, val beatsDivisor: Double) {
+    OFF("Off", 0.0),
+    EIGHTH("1/8", 2.0),
+    SIXTEENTH("1/16", 4.0),
+    THIRTY_SECOND("1/32", 8.0),
+    TRIPLET_16("1/16T", 6.0)
+}
+
+data class GmDrumSound(
+    val note: Int,
+    val name: String
+)
+
+object GmDrumCatalog {
+    val ALL: List<GmDrumSound> = listOf(
+        GmDrumSound(35, "Acoustic Bass Drum"),
+        GmDrumSound(36, "Bass Drum 1"),
+        GmDrumSound(37, "Side Stick / Rimshot"),
+        GmDrumSound(38, "Acoustic Snare"),
+        GmDrumSound(39, "Hand Clap"),
+        GmDrumSound(40, "Electric Snare"),
+        GmDrumSound(41, "Low Floor Tom"),
+        GmDrumSound(42, "Closed Hi-Hat"),
+        GmDrumSound(43, "High Floor Tom"),
+        GmDrumSound(44, "Pedal Hi-Hat"),
+        GmDrumSound(45, "Low Tom"),
+        GmDrumSound(46, "Open Hi-Hat"),
+        GmDrumSound(47, "Low-Mid Tom"),
+        GmDrumSound(48, "Hi-Mid Tom"),
+        GmDrumSound(49, "Crash Cymbal 1"),
+        GmDrumSound(50, "High Tom"),
+        GmDrumSound(51, "Ride Cymbal 1"),
+        GmDrumSound(52, "Chinese Cymbal"),
+        GmDrumSound(53, "Ride Bell"),
+        GmDrumSound(54, "Tambourine"),
+        GmDrumSound(55, "Splash Cymbal"),
+        GmDrumSound(56, "Cowbell"),
+        GmDrumSound(57, "Crash Cymbal 2"),
+        GmDrumSound(59, "Ride Cymbal 2"),
+        GmDrumSound(60, "Hi Bongo"),
+        GmDrumSound(61, "Low Bongo"),
+        GmDrumSound(62, "Mute Hi Conga"),
+        GmDrumSound(63, "Open Hi Conga"),
+        GmDrumSound(64, "Low Conga"),
+        GmDrumSound(65, "High Timbale"),
+        GmDrumSound(66, "Low Timbale"),
+        GmDrumSound(69, "Cabasa"),
+        GmDrumSound(70, "Maracas"),
+        GmDrumSound(75, "Claves"),
+        GmDrumSound(81, "Open Triangle")
+    )
+
+    fun nameFor(note: Int): String =
+        ALL.firstOrNull { it.note == note }?.name ?: "GM Note $note"
+
+    fun midiNoteLabel(note: Int): String {
+        val names = arrayOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+        val octave = (note / 12) - 1
+        return "${names[note.coerceIn(0, 127) % 12]}$octave ($note)"
+    }
+}
+
+@Serializable
+data class PadConfig(
+    val soundGmNote: Int? = null,
+    val kitOverride: BuiltInKit? = null,
+    val customWavName: String? = null,
+    val chokeGroup: Int = 0, // 0 = None, 1 = Hi-Hat Group, 2 = Group 2, 3 = Group 3
+    val midiInputNote: Int = 36,
+    val noteRepeat: NoteRepeatRate = NoteRepeatRate.OFF
+) {
+    val hasCustomSound: Boolean
+        get() = soundGmNote != null || kitOverride != null || customWavName != null
+}
+
+data class MidiDeviceEntry(
+    val id: String,
+    val name: String,
+    val isBluetooth: Boolean = false,
+    val connected: Boolean = false,
+    val detail: String = ""
+)
+

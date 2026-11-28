@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <array>
 #include <atomic>
 #include <mutex>
@@ -33,6 +34,20 @@ struct KitInfo {
     int sf2Preset;
 };
 
+struct GmSoundInfo {
+    int note;
+    const char* name;
+};
+
+struct PadConfigData {
+    int soundGmNote = 36;        // GM note played on SF2
+    int kitOverride = -1;        // -1 = follow active kit, 0..15 = override from another built-in kit
+    int chokeGroup = 0;          // 0 = None, 1 = Hi-Hat, 2 = Group 2, 3 = Group 3
+    int midiInputNote = 36;      // Incoming MIDI note that triggers this pad
+    int noteRepeatMode = 0;      // 0 = Off, 1 = 1/8, 2 = 1/16, 3 = 1/32, 4 = 1/16T
+    juce::String customWavName;  // Non-empty when a custom WAV sample is loaded on this pad
+};
+
 class CowDrumsProcessor : public juce::AudioProcessor {
 public:
     static constexpr int NUM_INSTRUMENTS = 12;
@@ -41,6 +56,7 @@ public:
     static const std::array<int, NUM_INSTRUMENTS> GM_NOTES;
     static const std::array<const char*, NUM_INSTRUMENTS> PAD_LABELS;
     static const std::array<KitInfo, NUM_KITS> BUILTIN_KITS;
+    static const std::vector<GmSoundInfo>& getGmSoundCatalog();
 
     CowDrumsProcessor();
     ~CowDrumsProcessor() override;
@@ -99,18 +115,48 @@ public:
     float getMasterGain() const { return masterGain.load(); }
 
     void triggerPadManual(int instrumentIndex, float velocity = 0.92f);
+    void setPadHeld(int instrumentIndex, bool held, float velocity = 0.92f);
     bool loadExternalSoundFont(const juce::File& file);
     juce::String getActiveSf2Label() const;
     juce::File exportActivePatternToTempMidiFile();
+
+    // Pad Context Menu API (Categories 1, 3, and 4)
+    PadConfigData getPadConfig(int inst);
+    void setPadSoundGmNote(int inst, int gmNote);
+    void setPadKitOverride(int inst, int kitIdx);
+    bool loadCustomWavForPad(int inst, const juce::File& file);
+    void resetPadSound(int inst);
+
+    void setPadChokeGroup(int inst, int group);
+    void startMidiLearn(int inst);
+    void cancelMidiLearn();
+    int getMidiLearnPad() const { return midiLearnPad.load(); }
+    void setPadMidiInputNote(int inst, int midiNote);
+    void setPadNoteRepeat(int inst, int mode);
+
+    void clearPadInActiveSlot(int inst);
+    void fillPadEveryNSteps(int inst, int everyN);
+    void humanizePadInActiveSlot(int inst);
 
     int getCurrentStep() const { return currentStep.load(); }
     int getCurrentStepCount() const;
     uint32_t consumePadFlashMask() { return padFlashMask.exchange(0); }
 
 private:
+    struct WavVoice {
+        bool active = false;
+        int inst = -1;
+        size_t pos = 0;
+        float gain = 1.0f;
+        int chokeGroup = 0;
+    };
+
     void loadPresetsFromBinary();
     void initBundledSoundFont();
-    void triggerNoteLocked(int midiNote, float velocity);
+    void syncAllChannelPresetsLocked();
+    void syncSingleChannelPresetLocked(int inst);
+    void triggerInstrumentLocked(int inst, float velocity);
+    void triggerRawNoteLocked(int midiNote, float velocity);
     static int instrumentNameToIndex(const juce::String& name);
     static int kitNameToIndex(const juce::String& name);
     static juce::String genreEnumToLabel(const juce::String& genreEnum);
@@ -120,6 +166,11 @@ private:
     tsf* soundFont = nullptr;
     double currentSampleRate = 44100.0;
     juce::String customSf2Name;
+
+    std::array<PadConfigData, NUM_INSTRUMENTS> padConfigs;
+    std::array<std::vector<float>, NUM_INSTRUMENTS> padCustomWavs;
+    std::array<WavVoice, 16> wavVoices{};
+    int wavVoiceCursor = 0;
 
     std::atomic<int> activePresetIdx{0};
     std::atomic<int> activeKitIdx{1}; // Room
@@ -136,6 +187,12 @@ private:
     std::atomic<float> masterGain{0.90f};
     std::atomic<int> currentStep{-1};
     std::atomic<uint32_t> padFlashMask{0};
+    std::atomic<int> midiLearnPad{-1};
+
+    // Audio-thread pad hold note-repeat state
+    std::array<bool, NUM_INSTRUMENTS> padHeld{};
+    std::array<float, NUM_INSTRUMENTS> padHeldVel{};
+    std::array<double, NUM_INSTRUMENTS> padRepeatCountdown{};
 
     // Audio-thread sequencer state
     int stepIndex = 0;

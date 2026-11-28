@@ -47,6 +47,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.cowdrums.model.DrumInstrument
 import com.cowdrums.ui.components.KitSoundFontSheet
+import com.cowdrums.ui.components.MidiBluetoothDialog
 import com.cowdrums.ui.components.TransportBar
 import com.cowdrums.ui.screens.BassScreen
 import com.cowdrums.ui.screens.MixerScreen
@@ -131,6 +132,7 @@ private fun CowDrumsDesktopApp(vm: DrumMachineViewModel) {
     var activeMode by remember { mutableStateOf(CowMode.PRESETS) }
     var showMixer by remember { mutableStateOf(false) }
     var showKitSheet by remember { mutableStateOf(false) }
+    var showMidiDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(state.statusMessage) {
@@ -165,6 +167,10 @@ private fun CowDrumsDesktopApp(vm: DrumMachineViewModel) {
                     onTapTempo = vm::tapTempo,
                     onSwingChange = vm::setSwing,
                     onOpenKitPicker = { showKitSheet = true },
+                    onOpenMidiDialog = {
+                        vm.refreshMidiDevices()
+                        showMidiDialog = true
+                    },
                     onToggleMixer = { showMixer = !showMixer },
                     mixerOpen = showMixer,
                     onExportWav = {
@@ -216,7 +222,7 @@ private fun CowDrumsDesktopApp(vm: DrumMachineViewModel) {
                         Spacer(Modifier.weight(1f))
 
                         Text(
-                            text = "Shortcuts: Space = Play/Stop  ·  F = Fill  ·  1–9 = Pads",
+                            text = "Right-click pad = Sound/MIDI/Pattern  ·  Space = Play  ·  F = Fill  ·  1–9 = Pads",
                             color = CowColors.TextMuted,
                             fontSize = 11.sp
                         )
@@ -260,7 +266,21 @@ private fun CowDrumsDesktopApp(vm: DrumMachineViewModel) {
                         onClearSlot = vm::clearActiveSlot,
                         onPrevKit = { vm.stepBuiltInKit(-1) },
                         onNextKit = { vm.stepBuiltInKit(1) },
-                        onOpenKitPicker = { showKitSheet = true }
+                        onOpenKitPicker = { showKitSheet = true },
+                        onSelectPadGmSound = vm::setPadGmSound,
+                        onSelectPadKitOverride = vm::setPadKitOverride,
+                        onPickCustomWavForPad = { inst ->
+                            pickOpenWavFile()?.let { vm.loadCustomWavForPad(inst, it) }
+                        },
+                        onResetPadSound = vm::resetPadSound,
+                        onSetPadChokeGroup = vm::setPadChokeGroup,
+                        onStartMidiLearn = vm::startMidiLearn,
+                        onCancelMidiLearn = vm::cancelMidiLearn,
+                        onResetPadMidiNote = { inst -> vm.setPadMidiInputNote(inst, inst.gmNote) },
+                        onSetPadNoteRepeat = vm::setPadNoteRepeat,
+                        onClearPadRow = vm::clearPadInActiveSlot,
+                        onFillPadEveryN = vm::fillPadEveryNSteps,
+                        onHumanizePadRow = vm::humanizePadInActiveSlot
                     )
                     CowMode.SEQUENCER -> SequencerScreen(
                         state = state,
@@ -310,12 +330,31 @@ private fun CowDrumsDesktopApp(vm: DrumMachineViewModel) {
             onToggleLockKit = vm::toggleLockKit
         )
     }
+
+    if (showMidiDialog) {
+        MidiBluetoothDialog(
+            devices = state.midiDevices,
+            lastMidiActivity = state.lastMidiActivity,
+            onRefresh = vm::refreshMidiDevices,
+            onToggleDevice = vm::toggleMidiDevice,
+            onOpenBluetoothSettings = vm::openBluetoothMidiSettings,
+            onDismiss = { showMidiDialog = false }
+        )
+    }
 }
 
 private fun pickOpenSf2File(): File? {
     val chooser = JFileChooser().apply {
         dialogTitle = "Select SoundFont 2 (.sf2) File"
         fileFilter = FileNameExtensionFilter("SoundFont 2 (*.sf2)", "sf2", "SF2")
+    }
+    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
+}
+
+private fun pickOpenWavFile(): File? {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "Select Custom Drum Sample (.wav)"
+        fileFilter = FileNameExtensionFilter("WAV Audio (*.wav)", "wav", "WAV")
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
 }
